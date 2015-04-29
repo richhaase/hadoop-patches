@@ -1,8 +1,8 @@
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
-index 6921a1e..cbb6f6a 100644
+index 6921a1e..8635baf 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
-@@ -249,11 +249,32 @@ private Job createJob() throws IOException {
+@@ -249,11 +249,31 @@ private Job createJob() throws IOException {
        setupSSLConfig(job);
      }
  
@@ -24,7 +24,6 @@ index 6921a1e..cbb6f6a 100644
 +  private void addExclusionsFileToDistCache(Job job,
 +                                            Path exclusionsFilePath) throws IOException {
 +    Configuration configuration = job.getConfiguration();
-+    FileSystem localFS = FileSystem.getLocal(configuration);
 +
 +    configuration.set(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE, exclusionsFilePath.getName());
 +
@@ -157,10 +156,10 @@ index 1729479..d7da5b4 100644
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-index cca36df..fbffdb1 100644
+index cca36df..0efb9f1 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-@@ -18,12 +18,21 @@
+@@ -18,12 +18,23 @@
  
  package org.apache.hadoop.tools.mapred;
  
@@ -173,6 +172,8 @@ index cca36df..fbffdb1 100644
 +import java.io.InputStreamReader;
  import java.io.IOException;
  import java.io.OutputStream;
++import java.net.URI;
++import java.nio.charset.Charset;
  import java.util.Arrays;
 +import java.util.ArrayList;
  import java.util.EnumSet;
@@ -182,7 +183,7 @@ index cca36df..fbffdb1 100644
  
  import org.apache.commons.logging.Log;
  import org.apache.commons.logging.LogFactory;
-@@ -43,6 +52,8 @@
+@@ -43,6 +54,8 @@
  import org.apache.hadoop.tools.util.DistCpUtils;
  import org.apache.hadoop.util.StringUtils;
  
@@ -191,7 +192,7 @@ index cca36df..fbffdb1 100644
  /**
   * Mapper class that executes the DistCp copy operation.
   * Implements the o.a.h.mapreduce.Mapper interface.
-@@ -58,10 +69,12 @@
+@@ -58,10 +71,12 @@
      COPY,         // Number of files received by the mapper for copy.
      SKIP,         // Number of files skipped.
      FAIL,         // Number of files that failed to be copied.
@@ -204,7 +205,7 @@ index cca36df..fbffdb1 100644
    }
  
    /**
-@@ -71,6 +84,7 @@
+@@ -71,6 +86,7 @@
      SKIP,         // Skip copying the file since it's already in the target FS
      APPEND,       // Only need to append new data to the file in the target FS 
      OVERWRITE,    // Overwrite the whole file
@@ -212,15 +213,15 @@ index cca36df..fbffdb1 100644
    }
  
    private static Log LOG = LogFactory.getLog(CopyMapper.class);
-@@ -83,6 +97,7 @@
+@@ -83,6 +99,7 @@
    private boolean overWrite = false;
    private boolean append = false;
    private EnumSet<FileAttribute> preserve = EnumSet.noneOf(FileAttribute.class);
-+  private List<Pattern> exclusionPatterns = null;
++  private List<Pattern> exclusionPatterns;
  
    private FileSystem targetFS = null;
    private Path    targetWorkPath = null;
-@@ -118,6 +133,39 @@ public void setup(Context context) throws IOException, InterruptedException {
+@@ -118,6 +135,44 @@ public void setup(Context context) throws IOException, InterruptedException {
      if (conf.get(DistCpConstants.CONF_LABEL_SSL_CONF) != null) {
        initializeSSLConf(context);
      }
@@ -243,7 +244,12 @@ index cca36df..fbffdb1 100644
 +  private void initializeExclusionPatterns(Context context) throws IOException {
 +    LOG.info("Initialze Exclusion Patterns");
 +
-+    Path[] cacheFiles = context.getLocalCacheFiles();
++    URI[] cacheURIs = context.getCacheFiles();
++    Path[] cacheFiles = new Path[cacheURIs.length];
++
++    for (int i = 0; i < cacheURIs.length; i++) {
++      cacheFiles[i] = new Path(cacheURIs[0]);
++     }
 +
 +    String exclusionsFile = conf.get(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE);
 +    Path exclusionsPath = findCacheFile(cacheFiles, exclusionsFile);
@@ -251,7 +257,7 @@ index cca36df..fbffdb1 100644
 +    exclusionPatterns = new ArrayList<Pattern>();
 +
 +    InputStream is = new FileInputStream(new File(exclusionsPath.getName()));
-+    BufferedReader reader = new BufferedReader(new InputStreamReader(is));
++    BufferedReader reader = new BufferedReader(new InputStreamReader(is, Charset.forName("UTF-8")));
 +    String line;
 +    while ((line = reader.readLine()) != null) {
 +      exclusionPatterns.add(Pattern.compile(line));
@@ -260,7 +266,7 @@ index cca36df..fbffdb1 100644
    }
  
    /**
-@@ -204,6 +252,12 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -204,6 +259,12 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      final boolean preserveRawXattrs = context.getConfiguration().getBoolean(
          DistCpConstants.CONF_LABEL_PRESERVE_RAWXATTRS, false);
  
@@ -273,7 +279,7 @@ index cca36df..fbffdb1 100644
      final String description = "Copying " + sourcePath + " to " + target;
      context.setStatus(description);
  
-@@ -261,6 +315,18 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -261,6 +322,18 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      }
    }
  
@@ -292,7 +298,7 @@ index cca36df..fbffdb1 100644
    private String getFileType(FileStatus fileStatus) {
      return fileStatus == null ? "N/A" : (fileStatus.isDirectory() ? "dir" : "file");
    }
-@@ -307,6 +373,13 @@ private static void updateSkipCounters(Context context,
+@@ -307,6 +380,13 @@ private static void updateSkipCounters(Context context,
  
    }
  
