@@ -1,0 +1,458 @@
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
+index 6921a1e..cbb6f6a 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
+@@ -249,11 +249,32 @@ private Job createJob() throws IOException {
+       setupSSLConfig(job);
+     }
+ 
++    if (inputOptions.getExclusionsFile() != null) {
++      addExclusionsFileToDistCache(job, new Path(inputOptions.getExclusionsFile()));
++    }
++
+     inputOptions.appendToConf(job.getConfiguration());
+     return job;
+   }
+ 
+   /**
++   * Add exclusions file to distributed cache.
++   *
++   * @param job - Job handle
++   * @param exclusionsFilePath - exclusion file path specified through options
++   * @throws IOException - If any
++   */
++  private void addExclusionsFileToDistCache(Job job,
++                                            Path exclusionsFilePath) throws IOException {
++    Configuration configuration = job.getConfiguration();
++    FileSystem localFS = FileSystem.getLocal(configuration);
++
++    configuration.set(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE, exclusionsFilePath.getName());
++
++    job.addCacheFile(exclusionsFilePath.toUri());
++  }
++
++  /**
+    * Setup ssl configuration on the job configuration to enable hsftp access
+    * from map job. Also copy the ssl configuration file to Distributed cache
+    *
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
+index 7ecb6ce..caecf21 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
+@@ -59,7 +59,8 @@
+   public static final String CONF_LABEL_APPEND = "distcp.copy.append";
+   public static final String CONF_LABEL_DIFF = "distcp.copy.diff";
+   public static final String CONF_LABEL_BANDWIDTH_MB = "distcp.map.bandwidth.mb";
+-  
++	public static final String CONF_LABEL_EXCLUSIONS_FILE = "distcp.map.exclusions.file";
++
+   public static final String CONF_LABEL_MAX_CHUNKS_TOLERABLE =
+       "distcp.dynamic.max.chunks.tolerable";
+   public static final String CONF_LABEL_MAX_CHUNKS_IDEAL =
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
+index f90319d..56d73a7 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
+@@ -177,7 +177,16 @@
+    * Specify bandwidth per map in MB
+    */
+   BANDWIDTH(DistCpConstants.CONF_LABEL_BANDWIDTH_MB,
+-      new Option("bandwidth", true, "Specify bandwidth per map in MB"));
++      new Option("bandwidth", true, "Specify bandwidth per map in MB")),
++
++	/**
++	 * Path containing a list of regex Patterns to be skipped during the
++	 * copy process.
++	 */
++	EXCLUSIONS(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE,
++			new Option("exclusions", true, "The path to a file containing a list of" +
++          " regular expressions for paths to be skipped during the copy."));
++
+ 
+   public static final String PRESERVE_STATUS_DEFAULT = "-prbugpct";
+   private final String confLabel;
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
+index d8f3ff7..a154942 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
+@@ -69,7 +69,9 @@
+ 
+   private Path targetPath;
+ 
+-  // targetPathExist is a derived field, it's initialized in the 
++	private String exclusionsFile;
++
++  // targetPathExist is a derived field, it's initialized in the
+   // beginning of distcp.
+   private boolean targetPathExists = true;
+   
+@@ -139,6 +141,7 @@ public DistCpOptions(DistCpOptions that) {
+       this.sourcePaths = that.getSourcePaths();
+       this.targetPath = that.getTargetPath();
+       this.targetPathExists = that.getTargetPathExists();
++	    this.exclusionsFile = that.getExclusionsFile();
+     }
+   }
+ 
+@@ -549,6 +552,24 @@ public boolean setTargetPathExists(boolean targetPathExists) {
+     return this.targetPathExists = targetPathExists;
+   }
+ 
++	/**
++	 * File path (hdfs:// or file://) that contains the list of Patterns
++	 * for paths to be excluded from the file copy.
++	 *
++	 * @return - Exclusions listing file path.
++	 */
++	public String getExclusionsFile() {
++		return exclusionsFile;
++	}
++
++	/**
++	 * Set exclusionsFile.
++	 * @param exclusionsFile The path to a list of patterns to exclude from copy.
++	 */
++	public void setExclusionsFile(String exclusionsFile) {
++		this.exclusionsFile = exclusionsFile;
++	}
++
+   public void validate(DistCpOptionSwitch option, boolean value) {
+ 
+     boolean syncFolder = (option == DistCpOptionSwitch.SYNC_FOLDERS ?
+@@ -623,6 +644,8 @@ public void appendToConf(Configuration conf) {
+         String.valueOf(mapBandwidth));
+     DistCpOptionSwitch.addToConf(conf, DistCpOptionSwitch.PRESERVE_STATUS,
+         DistCpUtils.packAttributes(preserveStatus));
++    if (exclusionsFile != null)
++	    DistCpOptionSwitch.addToConf(conf, DistCpOptionSwitch.EXCLUSIONS, exclusionsFile);
+   }
+ 
+   /**
+@@ -644,8 +667,9 @@ public String toString() {
+         ", sourcePaths=" + sourcePaths +
+         ", targetPath=" + targetPath +
+         ", targetPathExists=" + targetPathExists +
+-        ", preserveRawXattrs=" + preserveRawXattrs +
+-        '}';
++		    ", preserveRawXattrs=" + preserveRawXattrs +
++		    ", exclusionsFile='" + exclusionsFile + '\''+
++		    '}';
+   }
+ 
+   @Override
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
+index 1729479..d7da5b4 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
+@@ -263,6 +263,11 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
+               " option. Ignoring.");
+     }
+ 
++    if (command.hasOption(DistCpOptionSwitch.EXCLUSIONS.getSwitch())) {
++      option.setExclusionsFile(getVal(command,
++          DistCpOptionSwitch.EXCLUSIONS.getSwitch()));
++    }
++
+     return option;
+   }
+ 
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
+index cca36df..fbffdb1 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
+@@ -18,12 +18,21 @@
+ 
+ package org.apache.hadoop.tools.mapred;
+ 
++import java.io.BufferedReader;
+ import java.io.FileNotFoundException;
++import java.io.File;
++import java.io.FileInputStream;
+ import java.io.FileOutputStream;
++import java.io.InputStream;
++import java.io.InputStreamReader;
+ import java.io.IOException;
+ import java.io.OutputStream;
+ import java.util.Arrays;
++import java.util.ArrayList;
+ import java.util.EnumSet;
++import java.util.List;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
+ 
+ import org.apache.commons.logging.Log;
+ import org.apache.commons.logging.LogFactory;
+@@ -43,6 +52,8 @@
+ import org.apache.hadoop.tools.util.DistCpUtils;
+ import org.apache.hadoop.util.StringUtils;
+ 
++import com.google.common.annotations.VisibleForTesting;
++
+ /**
+  * Mapper class that executes the DistCp copy operation.
+  * Implements the o.a.h.mapreduce.Mapper interface.
+@@ -58,10 +69,12 @@
+     COPY,         // Number of files received by the mapper for copy.
+     SKIP,         // Number of files skipped.
+     FAIL,         // Number of files that failed to be copied.
++    EXCLUDED,     // Number of files excluded.
+     BYTESCOPIED,  // Number of bytes actually copied by the copy-mapper, total.
+     BYTESEXPECTED,// Number of bytes expected to be copied.
+     BYTESFAILED,  // Number of bytes that failed to be copied.
+     BYTESSKIPPED, // Number of bytes that were skipped from copy.
++    BYTESEXCLUDED,// Number of bytes that were excluded from copy.
+   }
+ 
+   /**
+@@ -71,6 +84,7 @@
+     SKIP,         // Skip copying the file since it's already in the target FS
+     APPEND,       // Only need to append new data to the file in the target FS 
+     OVERWRITE,    // Overwrite the whole file
++    EXCLUDE,      // Skip copying the file because it matched an exclusion pattern
+   }
+ 
+   private static Log LOG = LogFactory.getLog(CopyMapper.class);
+@@ -83,6 +97,7 @@
+   private boolean overWrite = false;
+   private boolean append = false;
+   private EnumSet<FileAttribute> preserve = EnumSet.noneOf(FileAttribute.class);
++  private List<Pattern> exclusionPatterns = null;
+ 
+   private FileSystem targetFS = null;
+   private Path    targetWorkPath = null;
+@@ -118,6 +133,39 @@ public void setup(Context context) throws IOException, InterruptedException {
+     if (conf.get(DistCpConstants.CONF_LABEL_SSL_CONF) != null) {
+       initializeSSLConf(context);
+     }
++
++    if (conf.get(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE, null) != null) {
++      initializeExclusionPatterns(context);
++    }
++  }
++
++  @VisibleForTesting
++  void setExclusionPatterns(List<Pattern> exclusionPatterns) {
++    this.exclusionPatterns = exclusionPatterns;
++  }
++
++  /**
++   * Initialize Exclusions Patterns
++   *
++   * @throws IOException - If any
++   */
++  private void initializeExclusionPatterns(Context context) throws IOException {
++    LOG.info("Initialze Exclusion Patterns");
++
++    Path[] cacheFiles = context.getLocalCacheFiles();
++
++    String exclusionsFile = conf.get(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE);
++    Path exclusionsPath = findCacheFile(cacheFiles, exclusionsFile);
++
++    exclusionPatterns = new ArrayList<Pattern>();
++
++    InputStream is = new FileInputStream(new File(exclusionsPath.getName()));
++    BufferedReader reader = new BufferedReader(new InputStreamReader(is));
++    String line;
++    while ((line = reader.readLine()) != null) {
++      exclusionPatterns.add(Pattern.compile(line));
++    }
++    reader.close();
+   }
+ 
+   /**
+@@ -204,6 +252,12 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+     final boolean preserveRawXattrs = context.getConfiguration().getBoolean(
+         DistCpConstants.CONF_LABEL_PRESERVE_RAWXATTRS, false);
+ 
++    if (canExclude(sourceFileStatus)) {
++      LOG.info("Excluding " + sourceFileStatus.getPath().toString() + " from copy.");
++      updateExcludeCounters(context, sourceFileStatus);
++      return;
++    }
++
+     final String description = "Copying " + sourcePath + " to " + target;
+     context.setStatus(description);
+ 
+@@ -261,6 +315,18 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+     }
+   }
+ 
++  private boolean canExclude(CopyListingFileStatus sourceFileStatus) {
++    if (exclusionPatterns != null) {
++      for (Pattern pattern : exclusionPatterns) {
++        Matcher matcher = pattern.matcher(sourceFileStatus.getPath().toString());
++        if (matcher.find()) {
++          return true;
++        }
++      }
++    }
++    return false;
++  }
++
+   private String getFileType(FileStatus fileStatus) {
+     return fileStatus == null ? "N/A" : (fileStatus.isDirectory() ? "dir" : "file");
+   }
+@@ -307,6 +373,13 @@ private static void updateSkipCounters(Context context,
+ 
+   }
+ 
++  private static void updateExcludeCounters(Context context,
++                                            FileStatus sourceFile) {
++    incrementCounter(context, Counter.EXCLUDED, 1);
++    incrementCounter(context, Counter.BYTESEXCLUDED, sourceFile.getLen());
++
++  }
++
+   private void handleFailures(IOException exception,
+                                      FileStatus sourceFileStatus, Path target,
+                                      Context context) throws IOException, InterruptedException {
+diff --git hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
+index 6eddfb2..b6c6d93 100644
+--- hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
++++ hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
+@@ -304,45 +304,18 @@ public void testParseMaps() {
+   }
+ 
+   @Test
+-  public void testParseNumListstatusThreads() {
++  public void testExclusionsOption() {
+     DistCpOptions options = OptionsParser.parse(new String[] {
+         "hdfs://localhost:8020/source/first",
+         "hdfs://localhost:8020/target/"});
+-    // If command line argument isn't set, we expect .getNumListstatusThreads
+-    // option to be zero (so that we know when to override conf properties).
+-    Assert.assertEquals(0, options.getNumListstatusThreads());
++    Assert.assertNull(options.getExclusionsFile());
+ 
+     options = OptionsParser.parse(new String[] {
+-        "--numListstatusThreads",
+-        "12",
++        "-exclusions",
++        "/tmp/exclusions.txt",
+         "hdfs://localhost:8020/source/first",
+         "hdfs://localhost:8020/target/"});
+-    Assert.assertEquals(12, options.getNumListstatusThreads());
+-
+-    options = OptionsParser.parse(new String[] {
+-        "--numListstatusThreads",
+-        "0",
+-        "hdfs://localhost:8020/source/first",
+-        "hdfs://localhost:8020/target/"});
+-    Assert.assertEquals(0, options.getNumListstatusThreads());
+-
+-    try {
+-      OptionsParser.parse(new String[] {
+-          "--numListstatusThreads",
+-          "hello",
+-          "hdfs://localhost:8020/source/first",
+-          "hdfs://localhost:8020/target/"});
+-      Assert.fail("Non numberic numListstatusThreads parsed");
+-    } catch (IllegalArgumentException ignore) { }
+-
+-    // Ignore large number of threads.
+-    options = OptionsParser.parse(new String[] {
+-        "--numListstatusThreads",
+-        "100",
+-        "hdfs://localhost:8020/source/first",
+-        "hdfs://localhost:8020/target/"});
+-    Assert.assertEquals(DistCpOptions.maxNumListstatusThreads,
+-                        options.getNumListstatusThreads());
++    Assert.assertEquals(options.getExclusionsFile(), "/tmp/exclusions.txt");
+   }
+ 
+   @Test
+@@ -400,7 +373,7 @@ public void testToString() {
+     String val = "DistCpOptions{atomicCommit=false, syncFolder=false, deleteMissing=false, " +
+         "ignoreFailures=false, maxMaps=20, sslConfigurationFile='null', copyStrategy='uniformsize', " +
+         "sourceFileListing=abc, sourcePaths=null, targetPath=xyz, targetPathExists=true, " +
+-        "preserveRawXattrs=false}";
++        "preserveRawXattrs=false, exclusionsFile='null'}";
+     Assert.assertEquals(val, option.toString());
+     Assert.assertNotSame(DistCpOptionSwitch.ATOMIC_COMMIT.toString(),
+         DistCpOptionSwitch.ATOMIC_COMMIT.name());
+diff --git hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java
+index ec60fa8..79bc06a 100644
+--- hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java
++++ hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java
+@@ -26,6 +26,7 @@
+ import java.util.EnumSet;
+ import java.util.List;
+ import java.util.Random;
++import java.util.regex.Pattern;
+ 
+ import org.apache.commons.logging.Log;
+ import org.apache.commons.logging.LogFactory;
+@@ -1029,4 +1030,73 @@ private void testPreserveUserGroupImpl(boolean preserve){
+       e.printStackTrace();
+     }
+   }
++
++  @Test(timeout=40000)
++  public void testCopyExclusions() {
++    try {
++      deleteState();
++      createSourceData();
++
++      UserGroupInformation tmpUser = UserGroupInformation.createRemoteUser("guest");
++
++      final CopyMapper copyMapper = new CopyMapper();
++
++      final StubContext stubContext =  tmpUser.
++          doAs(new PrivilegedAction<StubContext>() {
++            @Override
++            public StubContext run() {
++              try {
++                return new StubContext(getConfiguration(), null, 0);
++              } catch (Exception e) {
++                LOG.error("Exception encountered", e);
++                throw new RuntimeException(e);
++              }
++            }
++          });
++
++      final Mapper<Text, CopyListingFileStatus, Text, Text>.Context context =
++          stubContext.getContext();
++
++      touchFile(SOURCE_PATH + "/src/file");
++      mkdirs(TARGET_PATH);
++      cluster.getFileSystem().setPermission(new Path(TARGET_PATH), new FsPermission((short)511));
++
++
++      final FileSystem tmpFS = tmpUser.doAs(new PrivilegedAction<FileSystem>() {
++        @Override
++        public FileSystem run() {
++          try {
++            return FileSystem.get(configuration);
++          } catch (IOException e) {
++            LOG.error("Exception encountered", e);
++            Assert.fail("Test failed: " + e.getMessage());
++            throw new RuntimeException("Test ought to fail here");
++          }
++        }
++      });
++
++      tmpUser.doAs(new PrivilegedAction<Integer>() {
++        @Override
++        public Integer run() {
++          try {
++            List<Pattern> exclusionPatterns = new ArrayList<Pattern>();
++            exclusionPatterns.add(Pattern.compile("file"));
++            copyMapper.setup(context);
++            copyMapper.setExclusionPatterns(exclusionPatterns);
++            copyMapper.map(new Text("/src/file"),
++                new CopyListingFileStatus(tmpFS.getFileStatus(
++                    new Path(SOURCE_PATH + "/src/file"))),
++                context);
++            Assert.assertEquals(stubContext.getWriter().values().size(), 0);
++          } catch (Exception e) {
++            throw new RuntimeException(e);
++          }
++          return null;
++        }
++      });
++    } catch (Exception e) {
++      LOG.error("Exception encountered", e);
++      Assert.fail("Test failed: " + e.getMessage());
++    }
++  }
+ }
