@@ -1,5 +1,5 @@
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
-index 6921a1e..0e27bb4 100644
+index 6921a1e..b265b0d 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
 @@ -249,11 +249,32 @@ private Job createJob() throws IOException {
@@ -22,8 +22,8 @@ index 6921a1e..0e27bb4 100644
 +   * @param exclusionsFilePath - exclusion file path specified through options
 +   * @throws IOException - If any
 +   */
-+  private void addExclusionsFileToDistCache(final Job job,
-+                                            final Path exclusionsFilePath)
++  private void addExclusionsFileToDistCache(Job job,
++                                            Path exclusionsFilePath)
 +      throws IOException {
 +    Configuration configuration = job.getConfiguration();
 +    configuration.set(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE,
@@ -81,7 +81,7 @@ index f90319d..2830956 100644
    public static final String PRESERVE_STATUS_DEFAULT = "-prbugpct";
    private final String confLabel;
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
-index d8f3ff7..015f2f2 100644
+index d8f3ff7..f46456a 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
 @@ -69,7 +69,12 @@
@@ -125,7 +125,7 @@ index d8f3ff7..015f2f2 100644
 +   * @param exclusionsFilename The path to a list of patterns to exclude
 +   *                           from copy.
 +   */
-+  public final void setExclusionsFile(final String exclusionsFilename) {
++  public final void setExclusionsFile(String exclusionsFilename) {
 +    this.exclusionsFile = exclusionsFilename;
 +  }
 +
@@ -152,23 +152,326 @@ index d8f3ff7..015f2f2 100644
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
-index 1729479..d7da5b4 100644
+index 1729479..dc2ca9f 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
-@@ -263,6 +263,11 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
-               " option. Ignoring.");
+@@ -86,37 +86,7 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
+         Arrays.toString(args), e);
      }
  
+-    DistCpOptions option;
+-    Path targetPath;
+-    List<Path> sourcePaths = new ArrayList<Path>();
+-
+-    String leftOverArgs[] = command.getArgs();
+-    if (leftOverArgs == null || leftOverArgs.length < 1) {
+-      throw new IllegalArgumentException("Target path not specified");
+-    }
+-
+-    //Last Argument is the target path
+-    targetPath = new Path(leftOverArgs[leftOverArgs.length -1].trim());
+-
+-    //Copy any source paths in the arguments to the list
+-    for (int index = 0; index < leftOverArgs.length - 1; index++) {
+-      sourcePaths.add(new Path(leftOverArgs[index].trim()));
+-    }
+-
+-    /* If command has source file listing, use it else, fall back on source paths in args
+-       If both are present, throw exception and bail */
+-    if (command.hasOption(DistCpOptionSwitch.SOURCE_FILE_LISTING.getSwitch())) {
+-      if (!sourcePaths.isEmpty()) {
+-        throw new IllegalArgumentException("Both source file listing and source paths present");
+-      }
+-      option = new DistCpOptions(new Path(getVal(command, DistCpOptionSwitch.
+-              SOURCE_FILE_LISTING.getSwitch())), targetPath);
+-    } else {
+-      if (sourcePaths.isEmpty()) {
+-        throw new IllegalArgumentException("Neither source file listing nor source paths present");
+-      }
+-      option = new DistCpOptions(sourcePaths, targetPath);
+-    }
++    DistCpOptions option = parseSourceAndTargetPaths(command);
+ 
+     //Process all the other option switches and set options appropriately
+     if (command.hasOption(DistCpOptionSwitch.IGNORE_FAILURES.getSwitch())) {
+@@ -165,68 +135,23 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
+       option.setBlocking(false);
+     }
+ 
+-    if (command.hasOption(DistCpOptionSwitch.BANDWIDTH.getSwitch())) {
+-      try {
+-        Integer mapBandwidth = Integer.parseInt(
+-            getVal(command, DistCpOptionSwitch.BANDWIDTH.getSwitch()).trim());
+-        if (mapBandwidth.intValue() <= 0) {
+-          throw new IllegalArgumentException("Bandwidth specified is not positive: " +
+-              mapBandwidth);
+-        }
+-        option.setMapBandwidth(mapBandwidth);
+-      } catch (NumberFormatException e) {
+-        throw new IllegalArgumentException("Bandwidth specified is invalid: " +
+-            getVal(command, DistCpOptionSwitch.BANDWIDTH.getSwitch()), e);
+-      }
+-    }
++    parseBandwidth(command, option);
+ 
+     if (command.hasOption(DistCpOptionSwitch.SSL_CONF.getSwitch())) {
+       option.setSslConfigurationFile(command.
+           getOptionValue(DistCpOptionSwitch.SSL_CONF.getSwitch()));
+     }
+ 
+-    if (command.hasOption(DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch())) {
+-      try {
+-        Integer numThreads = Integer.parseInt(getVal(command,
+-              DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch()).trim());
+-        option.setNumListstatusThreads(numThreads);
+-      } catch (NumberFormatException e) {
+-        throw new IllegalArgumentException(
+-            "Number of liststatus threads is invalid: " + getVal(command,
+-                DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch()), e);
+-      }
+-    }
++    parseNumListStatusThreads(command, option);
+ 
+-    if (command.hasOption(DistCpOptionSwitch.MAX_MAPS.getSwitch())) {
+-      try {
+-        Integer maps = Integer.parseInt(
+-            getVal(command, DistCpOptionSwitch.MAX_MAPS.getSwitch()).trim());
+-        option.setMaxMaps(maps);
+-      } catch (NumberFormatException e) {
+-        throw new IllegalArgumentException("Number of maps is invalid: " +
+-            getVal(command, DistCpOptionSwitch.MAX_MAPS.getSwitch()), e);
+-      }
+-    }
++    parseMaxMaps(command, option);
+ 
+     if (command.hasOption(DistCpOptionSwitch.COPY_STRATEGY.getSwitch())) {
+       option.setCopyStrategy(
+             getVal(command, DistCpOptionSwitch.COPY_STRATEGY.getSwitch()));
+     }
+ 
+-    if (command.hasOption(DistCpOptionSwitch.PRESERVE_STATUS.getSwitch())) {
+-      String attributes =
+-          getVal(command, DistCpOptionSwitch.PRESERVE_STATUS.getSwitch());
+-      if (attributes == null || attributes.isEmpty()) {
+-        for (FileAttribute attribute : FileAttribute.values()) {
+-          option.preserve(attribute);
+-        }
+-      } else {
+-        for (int index = 0; index < attributes.length(); index++) {
+-          option.preserve(FileAttribute.
+-              getAttribute(attributes.charAt(index)));
+-        }
+-      }
+-    }
++    parsePreserveStatus(command, option);
+ 
+     if (command.hasOption(DistCpOptionSwitch.DIFF.getSwitch())) {
+       String[] snapshots = getVals(command, DistCpOptionSwitch.DIFF.getSwitch());
+@@ -235,6 +160,47 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
+       option.setUseDiff(true, snapshots[0], snapshots[1]);
+     }
+ 
++    parseFileLimit(command);
++
++    parseSizeLimit(command);
++
 +    if (command.hasOption(DistCpOptionSwitch.EXCLUSIONS.getSwitch())) {
 +      option.setExclusionsFile(getVal(command,
 +          DistCpOptionSwitch.EXCLUSIONS.getSwitch()));
 +    }
 +
++    return option;
++  }
++
++  /**
++   * parseSizeLimit is a helper method for parsing the deprecated
++   * argument SIZE_LIMIT.
++   *
++   * @param command command line arguments
++   */
++  private static void parseSizeLimit(CommandLine command) {
++    if (command.hasOption(DistCpOptionSwitch.SIZE_LIMIT.getSwitch())) {
++      String sizeLimitString = getVal(command,
++                              DistCpOptionSwitch.SIZE_LIMIT.getSwitch().trim());
++      try {
++        Long.parseLong(sizeLimitString);
++      }
++      catch (NumberFormatException e) {
++        throw new IllegalArgumentException("Size-limit is invalid: "
++                                            + sizeLimitString, e);
++      }
++      LOG.warn(DistCpOptionSwitch.SIZE_LIMIT.getSwitch() + " is a deprecated" +
++              " option. Ignoring.");
++    }
++  }
++
++  /**
++   * parseFileLimit is a helper method for parsing the deprecated
++   * argument FILE_LIMIT.
++   *
++   * @param command command line arguments
++   */
++  private static void parseFileLimit(CommandLine command) {
+     if (command.hasOption(DistCpOptionSwitch.FILE_LIMIT.getSwitch())) {
+       String fileLimitString = getVal(command,
+                               DistCpOptionSwitch.FILE_LIMIT.getSwitch().trim());
+@@ -246,23 +212,144 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
+                                             + fileLimitString, e);
+       }
+       LOG.warn(DistCpOptionSwitch.FILE_LIMIT.getSwitch() + " is a deprecated" +
+-              " option. Ignoring.");
++          " option. Ignoring.");
+     }
++  }
+ 
+-    if (command.hasOption(DistCpOptionSwitch.SIZE_LIMIT.getSwitch())) {
+-      String sizeLimitString = getVal(command,
+-                              DistCpOptionSwitch.SIZE_LIMIT.getSwitch().trim());
++  /**
++   * parsePreserveStatus is a helper method for parsing PRESERVE_STATUS.
++   *
++   * @param command command line arguments
++   * @param option  parsed distcp options
++   */
++  private static void parsePreserveStatus(CommandLine command,
++                                          DistCpOptions option) {
++    if (command.hasOption(DistCpOptionSwitch.PRESERVE_STATUS.getSwitch())) {
++      String attributes =
++          getVal(command, DistCpOptionSwitch.PRESERVE_STATUS.getSwitch());
++      if (attributes == null || attributes.isEmpty()) {
++        for (FileAttribute attribute : FileAttribute.values()) {
++          option.preserve(attribute);
++        }
++      } else {
++        for (int index = 0; index < attributes.length(); index++) {
++          option.preserve(FileAttribute.
++              getAttribute(attributes.charAt(index)));
++        }
++      }
++    }
++  }
++
++  /**
++   * parseMaxMaps is a helper method for parsing MAX_MAPS.
++   *
++   * @param command command line arguments
++   * @param option  parsed distcp options
++   */
++  private static void parseMaxMaps(CommandLine command,
++                                   DistCpOptions option) {
++    if (command.hasOption(DistCpOptionSwitch.MAX_MAPS.getSwitch())) {
+       try {
+-        Long.parseLong(sizeLimitString);
++        Integer maps = Integer.parseInt(
++            getVal(command, DistCpOptionSwitch.MAX_MAPS.getSwitch()).trim());
++        option.setMaxMaps(maps);
++      } catch (NumberFormatException e) {
++        throw new IllegalArgumentException("Number of maps is invalid: " +
++            getVal(command, DistCpOptionSwitch.MAX_MAPS.getSwitch()), e);
+       }
+-      catch (NumberFormatException e) {
+-        throw new IllegalArgumentException("Size-limit is invalid: "
+-                                            + sizeLimitString, e);
++    }
++  }
++
++  /**
++   * parseNumListStatusThreads is a helper method for parsing
++   * NUM_LISTSTATUS_THREADS.
++   *
++   * @param command command line arguments
++   * @param option  parsed distcp options
++   */
++  private static void parseNumListStatusThreads(CommandLine command,
++                                                DistCpOptions option) {
++    if (command.hasOption(
++        DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch())) {
++      try {
++        Integer numThreads = Integer.parseInt(getVal(command,
++              DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch()).trim());
++        option.setNumListstatusThreads(numThreads);
++      } catch (NumberFormatException e) {
++        throw new IllegalArgumentException(
++            "Number of liststatus threads is invalid: " + getVal(command,
++                DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch()), e);
+       }
+-      LOG.warn(DistCpOptionSwitch.SIZE_LIMIT.getSwitch() + " is a deprecated" +
+-              " option. Ignoring.");
++    }
++  }
++
++  /**
++   * parseBandwidth is a helper method for parsing BANDWIDTH.
++   *
++   * @param command command line arguments
++   * @param option  parsed distcp options
++   */
++  private static void parseBandwidth(CommandLine command,
++                                     DistCpOptions option) {
++    if (command.hasOption(DistCpOptionSwitch.BANDWIDTH.getSwitch())) {
++      try {
++        Integer mapBandwidth = Integer.parseInt(
++            getVal(command, DistCpOptionSwitch.BANDWIDTH.getSwitch()).trim());
++        if (mapBandwidth.intValue() <= 0) {
++          throw new IllegalArgumentException("Bandwidth specified is not " +
++              "positive: " + mapBandwidth);
++        }
++        option.setMapBandwidth(mapBandwidth);
++      } catch (NumberFormatException e) {
++        throw new IllegalArgumentException("Bandwidth specified is invalid: " +
++            getVal(command, DistCpOptionSwitch.BANDWIDTH.getSwitch()), e);
++      }
++    }
++  }
++
++  /**
++   * parseSourceAndTargetPaths is a helper method for parsing the source
++   * and target paths.
++   *
++   * @param command command line arguments
++   * @return        DistCpOptions
++   */
++  private static DistCpOptions parseSourceAndTargetPaths(
++      CommandLine command) {
++    DistCpOptions option;
++    Path targetPath;
++    List<Path> sourcePaths = new ArrayList<Path>();
++
++    String[] leftOverArgs = command.getArgs();
++    if (leftOverArgs == null || leftOverArgs.length < 1) {
++      throw new IllegalArgumentException("Target path not specified");
++    }
++
++    //Last Argument is the target path
++    targetPath = new Path(leftOverArgs[leftOverArgs.length -1].trim());
++
++    //Copy any source paths in the arguments to the list
++    for (int index = 0; index < leftOverArgs.length - 1; index++) {
++      sourcePaths.add(new Path(leftOverArgs[index].trim()));
+     }
+ 
++    /* If command has source file listing, use it else, fall back on source
++       paths in args.  If both are present, throw exception and bail */
++    if (command.hasOption(
++        DistCpOptionSwitch.SOURCE_FILE_LISTING.getSwitch())) {
++      if (!sourcePaths.isEmpty()) {
++        throw new IllegalArgumentException("Both source file listing and " +
++            "source paths present");
++      }
++      option = new DistCpOptions(new Path(getVal(command, DistCpOptionSwitch.
++              SOURCE_FILE_LISTING.getSwitch())), targetPath);
++    } else {
++      if (sourcePaths.isEmpty()) {
++        throw new IllegalArgumentException("Neither source file listing nor " +
++            "source paths present");
++      }
++      option = new DistCpOptions(sourcePaths, targetPath);
++    }
      return option;
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-index cca36df..3c58ee7 100644
+index cca36df..ec26954 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 @@ -18,12 +18,23 @@
@@ -263,7 +566,7 @@ index cca36df..3c58ee7 100644
 +   * @param  context     - Mapper context
 +   * @throws IOException - If any
 +   */
-+  private void initializeExclusionPatterns(final Context context)
++  private void initializeExclusionPatterns(Context context)
 +      throws IOException {
 +    LOG.info("Initialze Exclusion Patterns");
 +
@@ -315,7 +618,7 @@ index cca36df..3c58ee7 100644
 +   * @param sourceFileStatus file status object
 +   * @return boolean
 +   */
-+  private boolean canExclude(final CopyListingFileStatus sourceFileStatus) {
++  private boolean canExclude(CopyListingFileStatus sourceFileStatus) {
 +    if (exclusionPatterns != null) {
 +      for (Pattern pattern : exclusionPatterns) {
 +        Matcher matcher = pattern.matcher(
@@ -343,8 +646,8 @@ index cca36df..3c58ee7 100644
 +   * @param context Mapper context
 +   * @param sourceFile FileStatus of the file being excluded
 +   */
-+  private static void updateExcludeCounters(final Context context,
-+                                            final FileStatus sourceFile) {
++  private static void updateExcludeCounters(Context context,
++                                            FileStatus sourceFile) {
 +    incrementCounter(context, Counter.EXCLUDED, 1);
 +    incrementCounter(context, Counter.BYTESEXCLUDED, sourceFile.getLen());
    }
