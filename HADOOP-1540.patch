@@ -36,7 +36,7 @@ index 6921a1e..b265b0d 100644
     * from map job. Also copy the ssl configuration file to Distributed cache
     *
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
-index 7ecb6ce..f745e15 100644
+index 7ecb6ce..d00b15d 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
 @@ -20,7 +20,7 @@
@@ -54,7 +54,7 @@ index 7ecb6ce..f745e15 100644
    public static final String CONF_LABEL_BANDWIDTH_MB = "distcp.map.bandwidth.mb";
 -  
 +  public static final String CONF_LABEL_EXCLUSIONS_FILE =
-+      "distcp.map.exclusions.file";
++      "distcp.exclusions.file";
    public static final String CONF_LABEL_MAX_CHUNKS_TOLERABLE =
        "distcp.dynamic.max.chunks.tolerable";
    public static final String CONF_LABEL_MAX_CHUNKS_IDEAL =
