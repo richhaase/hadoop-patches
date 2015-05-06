@@ -471,7 +471,7 @@ index 1729479..46756a7 100644
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-index cca36df..ec26954 100644
+index cca36df..81f6390 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 @@ -18,12 +18,23 @@
@@ -498,7 +498,15 @@ index cca36df..ec26954 100644
  
  import org.apache.commons.logging.Log;
  import org.apache.commons.logging.LogFactory;
-@@ -43,6 +54,8 @@
+@@ -32,6 +43,7 @@
+ import org.apache.hadoop.fs.FileStatus;
+ import org.apache.hadoop.fs.FileSystem;
+ import org.apache.hadoop.fs.Path;
++import org.apache.hadoop.io.IOUtils;
+ import org.apache.hadoop.io.Text;
+ import org.apache.hadoop.mapreduce.JobContext;
+ import org.apache.hadoop.mapreduce.Mapper;
+@@ -43,6 +55,8 @@
  import org.apache.hadoop.tools.util.DistCpUtils;
  import org.apache.hadoop.util.StringUtils;
  
@@ -507,7 +515,7 @@ index cca36df..ec26954 100644
  /**
   * Mapper class that executes the DistCp copy operation.
   * Implements the o.a.h.mapreduce.Mapper interface.
-@@ -58,10 +71,21 @@
+@@ -58,10 +72,21 @@
      COPY,         // Number of files received by the mapper for copy.
      SKIP,         // Number of files skipped.
      FAIL,         // Number of files that failed to be copied.
@@ -530,7 +538,7 @@ index cca36df..ec26954 100644
    }
  
    /**
-@@ -83,6 +107,7 @@
+@@ -83,6 +108,7 @@
    private boolean overWrite = false;
    private boolean append = false;
    private EnumSet<FileAttribute> preserve = EnumSet.noneOf(FileAttribute.class);
@@ -538,7 +546,7 @@ index cca36df..ec26954 100644
  
    private FileSystem targetFS = null;
    private Path    targetWorkPath = null;
-@@ -118,6 +143,55 @@ public void setup(Context context) throws IOException, InterruptedException {
+@@ -118,6 +144,60 @@ public void setup(Context context) throws IOException, InterruptedException {
      if (conf.get(DistCpConstants.CONF_LABEL_SSL_CONF) != null) {
        initializeSSLConf(context);
      }
@@ -583,18 +591,23 @@ index cca36df..ec26954 100644
 +
 +    exclusionPatterns = new ArrayList<>();
 +
-+    InputStream is = new FileInputStream(new File(exclusionsPath.getName()));
-+    BufferedReader reader = new BufferedReader(new InputStreamReader(is,
-+        Charset.forName("UTF-8")));
-+    String line;
-+    while ((line = reader.readLine()) != null) {
-+      exclusionPatterns.add(Pattern.compile(line));
++    BufferedReader reader = null;
++    try {
++      InputStream is = new FileInputStream(new File(exclusionsPath.getName()));
++      reader = new BufferedReader(new InputStreamReader(is,
++          Charset.forName("UTF-8")));
++      String line;
++      while ((line = reader.readLine()) != null) {
++        exclusionPatterns.add(Pattern.compile(line));
++      }
 +    }
-+    reader.close();
++    finally {
++      IOUtils.cleanup(LOG, reader);
++    }
    }
  
    /**
-@@ -204,6 +278,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -204,6 +284,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      final boolean preserveRawXattrs = context.getConfiguration().getBoolean(
          DistCpConstants.CONF_LABEL_PRESERVE_RAWXATTRS, false);
  
@@ -608,7 +621,7 @@ index cca36df..ec26954 100644
      final String description = "Copying " + sourcePath + " to " + target;
      context.setStatus(description);
  
-@@ -261,6 +342,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -261,6 +348,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      }
    }
  
@@ -634,7 +647,7 @@ index cca36df..ec26954 100644
    private String getFileType(FileStatus fileStatus) {
      return fileStatus == null ? "N/A" : (fileStatus.isDirectory() ? "dir" : "file");
    }
-@@ -304,7 +404,18 @@ private static void updateSkipCounters(Context context,
+@@ -304,7 +410,18 @@ private static void updateSkipCounters(Context context,
                                           FileStatus sourceFile) {
      incrementCounter(context, Counter.SKIP, 1);
      incrementCounter(context, Counter.BYTESSKIPPED, sourceFile.getLen());
