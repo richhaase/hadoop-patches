@@ -152,7 +152,7 @@ index d8f3ff7..f46456a 100644
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
-index 1729479..dc2ca9f 100644
+index 1729479..46756a7 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
 @@ -86,37 +86,7 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
@@ -394,9 +394,7 @@ index 1729479..dc2ca9f 100644
 +        throw new IllegalArgumentException(
 +            "Number of liststatus threads is invalid: " + getVal(command,
 +                DistCpOptionSwitch.NUM_LISTSTATUS_THREADS.getSwitch()), e);
-       }
--      LOG.warn(DistCpOptionSwitch.SIZE_LIMIT.getSwitch() + " is a deprecated" +
--              " option. Ignoring.");
++      }
 +    }
 +  }
 +
@@ -412,7 +410,7 @@ index 1729479..dc2ca9f 100644
 +      try {
 +        Integer mapBandwidth = Integer.parseInt(
 +            getVal(command, DistCpOptionSwitch.BANDWIDTH.getSwitch()).trim());
-+        if (mapBandwidth.intValue() <= 0) {
++        if (mapBandwidth <= 0) {
 +          throw new IllegalArgumentException("Bandwidth specified is not " +
 +              "positive: " + mapBandwidth);
 +        }
@@ -420,10 +418,12 @@ index 1729479..dc2ca9f 100644
 +      } catch (NumberFormatException e) {
 +        throw new IllegalArgumentException("Bandwidth specified is invalid: " +
 +            getVal(command, DistCpOptionSwitch.BANDWIDTH.getSwitch()), e);
-+      }
-+    }
+       }
+-      LOG.warn(DistCpOptionSwitch.SIZE_LIMIT.getSwitch() + " is a deprecated" +
+-              " option. Ignoring.");
+     }
 +  }
-+
+ 
 +  /**
 +   * parseSourceAndTargetPaths is a helper method for parsing the source
 +   * and target paths.
@@ -448,8 +448,8 @@ index 1729479..dc2ca9f 100644
 +    //Copy any source paths in the arguments to the list
 +    for (int index = 0; index < leftOverArgs.length - 1; index++) {
 +      sourcePaths.add(new Path(leftOverArgs[index].trim()));
-     }
- 
++    }
++
 +    /* If command has source file listing, use it else, fall back on source
 +       paths in args.  If both are present, throw exception and bail */
 +    if (command.hasOption(
