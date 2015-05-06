@@ -471,7 +471,7 @@ index 1729479..46756a7 100644
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-index cca36df..81f6390 100644
+index cca36df..eaf1016 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 @@ -18,12 +18,23 @@
@@ -546,7 +546,7 @@ index cca36df..81f6390 100644
  
    private FileSystem targetFS = null;
    private Path    targetWorkPath = null;
-@@ -118,6 +144,60 @@ public void setup(Context context) throws IOException, InterruptedException {
+@@ -118,6 +144,59 @@ public void setup(Context context) throws IOException, InterruptedException {
      if (conf.get(DistCpConstants.CONF_LABEL_SSL_CONF) != null) {
        initializeSSLConf(context);
      }
@@ -600,14 +600,13 @@ index cca36df..81f6390 100644
 +      while ((line = reader.readLine()) != null) {
 +        exclusionPatterns.add(Pattern.compile(line));
 +      }
-+    }
-+    finally {
++    } finally {
 +      IOUtils.cleanup(LOG, reader);
 +    }
    }
  
    /**
-@@ -204,6 +284,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -204,6 +283,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      final boolean preserveRawXattrs = context.getConfiguration().getBoolean(
          DistCpConstants.CONF_LABEL_PRESERVE_RAWXATTRS, false);
  
@@ -621,7 +620,7 @@ index cca36df..81f6390 100644
      final String description = "Copying " + sourcePath + " to " + target;
      context.setStatus(description);
  
-@@ -261,6 +348,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -261,6 +347,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      }
    }
  
@@ -647,7 +646,7 @@ index cca36df..81f6390 100644
    private String getFileType(FileStatus fileStatus) {
      return fileStatus == null ? "N/A" : (fileStatus.isDirectory() ? "dir" : "file");
    }
-@@ -304,7 +410,18 @@ private static void updateSkipCounters(Context context,
+@@ -304,7 +409,18 @@ private static void updateSkipCounters(Context context,
                                           FileStatus sourceFile) {
      incrementCounter(context, Counter.SKIP, 1);
      incrementCounter(context, Counter.BYTESSKIPPED, sourceFile.getLen());
