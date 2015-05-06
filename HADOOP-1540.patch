@@ -471,7 +471,7 @@ index 1729479..46756a7 100644
    }
  
 diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-index cca36df..eaf1016 100644
+index cca36df..248f552 100644
 --- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 +++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
 @@ -18,12 +18,23 @@
@@ -515,30 +515,57 @@ index cca36df..eaf1016 100644
  /**
   * Mapper class that executes the DistCp copy operation.
   * Implements the o.a.h.mapreduce.Mapper interface.
-@@ -58,10 +72,21 @@
-     COPY,         // Number of files received by the mapper for copy.
-     SKIP,         // Number of files skipped.
-     FAIL,         // Number of files that failed to be copied.
-+    /**
-+     * EXCLUDED Number of files excluded.
-+     */
-+    EXCLUDED,     // Number of files excluded.
-     BYTESCOPIED,  // Number of bytes actually copied by the copy-mapper, total.
+@@ -55,13 +69,42 @@
+    * for backward compatibility.)
+    */
+   public static enum Counter {
+-    COPY,         // Number of files received by the mapper for copy.
+-    SKIP,         // Number of files skipped.
+-    FAIL,         // Number of files that failed to be copied.
+-    BYTESCOPIED,  // Number of bytes actually copied by the copy-mapper, total.
 -    BYTESEXPECTED,// Number of bytes expected to be copied.
+-    BYTESFAILED,  // Number of bytes that failed to be copied.
+-    BYTESSKIPPED, // Number of bytes that were skipped from copy.
 +    /**
-+     * BYTESEXPECTED Number of bytes expected to be copied.
++     * COPY Number of files received by the mapper for copy.
++     */
++    COPY,
++    /**
++     * Number of files skipped.
++     */
++    SKIP,
++    /**
++     * Number of files that failed to be copied.
++     */
++    FAIL,
++    /**
++     * Number of files excluded.
++     */
++    EXCLUDED,
++    /**
++     * Number of bytes actually copied by the copy-mapper, total.
++     */
++    BYTESCOPIED,
++    /**
++     * Number of bytes expected to be copied.
 +     */
 +    BYTESEXPECTED,
-     BYTESFAILED,  // Number of bytes that failed to be copied.
-     BYTESSKIPPED, // Number of bytes that were skipped from copy.
 +    /**
-+     * BYTESEXCLUDED Number of bytes that were excluded from copy.
++     * Number of bytes that failed to be copied.
++     */
++    BYTESFAILED,
++    /**
++     * Number of bytes that were skipped.
++     */
++    BYTESSKIPPED,
++    /**
++     * Number of bytes that were excluded from copy.
 +     */
 +    BYTESEXCLUDED,
    }
  
    /**
-@@ -83,6 +108,7 @@
+@@ -83,6 +126,7 @@
    private boolean overWrite = false;
    private boolean append = false;
    private EnumSet<FileAttribute> preserve = EnumSet.noneOf(FileAttribute.class);
@@ -546,7 +573,7 @@ index cca36df..eaf1016 100644
  
    private FileSystem targetFS = null;
    private Path    targetWorkPath = null;
-@@ -118,6 +144,59 @@ public void setup(Context context) throws IOException, InterruptedException {
+@@ -118,6 +162,59 @@ public void setup(Context context) throws IOException, InterruptedException {
      if (conf.get(DistCpConstants.CONF_LABEL_SSL_CONF) != null) {
        initializeSSLConf(context);
      }
@@ -606,7 +633,7 @@ index cca36df..eaf1016 100644
    }
  
    /**
-@@ -204,6 +283,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -204,6 +301,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      final boolean preserveRawXattrs = context.getConfiguration().getBoolean(
          DistCpConstants.CONF_LABEL_PRESERVE_RAWXATTRS, false);
  
@@ -620,7 +647,7 @@ index cca36df..eaf1016 100644
      final String description = "Copying " + sourcePath + " to " + target;
      context.setStatus(description);
  
-@@ -261,6 +347,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
+@@ -261,6 +365,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
      }
    }
  
@@ -646,7 +673,7 @@ index cca36df..eaf1016 100644
    private String getFileType(FileStatus fileStatus) {
      return fileStatus == null ? "N/A" : (fileStatus.isDirectory() ? "dir" : "file");
    }
-@@ -304,7 +409,18 @@ private static void updateSkipCounters(Context context,
+@@ -304,7 +427,18 @@ private static void updateSkipCounters(Context context,
                                           FileStatus sourceFile) {
      incrementCounter(context, Counter.SKIP, 1);
      incrementCounter(context, Counter.BYTESSKIPPED, sourceFile.getLen());
