@@ -1,67 +1,80 @@
-diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
-index 6921a1e..b265b0d 100644
---- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
-+++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCp.java
-@@ -249,11 +249,32 @@ private Job createJob() throws IOException {
-       setupSSLConfig(job);
-     }
- 
-+    if (inputOptions.getExclusionsFile() != null) {
-+      addExclusionsFileToDistCache(job,
-+          new Path(inputOptions.getExclusionsFile()));
-+    }
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/CopyFilter.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/CopyFilter.java
+new file mode 100644
+index 0000000..e48eca8
+--- /dev/null
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/CopyFilter.java
+@@ -0,0 +1,53 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.hadoop.tools;
 +
-     inputOptions.appendToConf(job.getConfiguration());
-     return job;
-   }
- 
-   /**
-+   * Add exclusions file to distributed cache.
-+   *
-+   * @param job - Job handle
-+   * @param exclusionsFilePath - exclusion file path specified through options
-+   * @throws IOException - If any
-+   */
-+  private void addExclusionsFileToDistCache(Job job,
-+                                            Path exclusionsFilePath)
-+      throws IOException {
-+    Configuration configuration = job.getConfiguration();
-+    configuration.set(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE,
-+        exclusionsFilePath.getName());
-+    job.addCacheFile(exclusionsFilePath.toUri());
-+  }
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.fs.Path;
++
++/**
++ * Interface for excluding files from DistCp.
++ *
++ */
++public abstract class CopyFilter {
 +
 +  /**
-    * Setup ssl configuration on the job configuration to enable hsftp access
-    * from map job. Also copy the ssl configuration file to Distributed cache
-    *
-diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
-index 7ecb6ce..d00b15d 100644
---- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
-+++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
-@@ -20,7 +20,7 @@
- 
- /**
-  * Utility class to hold commonly used constants.
-- */
-+  */
- public class DistCpConstants {
- 
-   /* Default number of threads to use for building file listing */
++   * Predicate to determine if a file can be excluded from copy.
++   *
++   * @param path a Path to be considered for copying
++   * @return boolean, true to copy, false to exclude
++   */
++  public abstract boolean shouldCopy(Path path);
++
++  /**
++   * Public factory method which returns the appropriate implementation of
++   * CopyFilter.
++   *
++   * @param conf DistCp configuratoin
++   * @return An instance of the appropriate CopyFilter
++   */
++  public static CopyFilter getCopyFilter(Configuration conf) {
++    String filtersFilename = conf.get(DistCpConstants.CONF_LABEL_FILTERS_FILE);
++
++    if (filtersFilename == null) {
++      return new TrueCopyFilter();
++    } else {
++      return new SimpleCopyFilter(conf);
++    }
++  }
++}
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
+index 7ecb6ce..21dca62 100644
+--- a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpConstants.java
 @@ -59,7 +59,8 @@
    public static final String CONF_LABEL_APPEND = "distcp.copy.append";
    public static final String CONF_LABEL_DIFF = "distcp.copy.diff";
    public static final String CONF_LABEL_BANDWIDTH_MB = "distcp.map.bandwidth.mb";
 -  
-+  public static final String CONF_LABEL_EXCLUSIONS_FILE =
-+      "distcp.exclusions.file";
++  public static final String CONF_LABEL_FILTERS_FILE =
++      "distcp.filters.file";
    public static final String CONF_LABEL_MAX_CHUNKS_TOLERABLE =
        "distcp.dynamic.max.chunks.tolerable";
    public static final String CONF_LABEL_MAX_CHUNKS_IDEAL =
-diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
-index f90319d..2830956 100644
---- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
-+++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
+index f90319d..ed4a0b2 100644
+--- a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
 @@ -177,7 +177,16 @@
     * Specify bandwidth per map in MB
     */
@@ -70,29 +83,29 @@ index f90319d..2830956 100644
 +      new Option("bandwidth", true, "Specify bandwidth per map in MB")),
 +
 +  /**
-+   * Path containing a list of regex Patterns to be skipped during the
-+   * copy process.
++   * Path containing a list of strings, which when found in the path of
++   * a file to be copied excludes that file from the copy job.
 +   */
-+  EXCLUSIONS(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE,
-+      new Option("exclusions", true, "The path to a file containing a list of"
-+          + " regular expressions for paths to be skipped during the copy."));
++  FILTERS(DistCpConstants.CONF_LABEL_FILTERS_FILE,
++      new Option("filters", true, "The path to a file containing a list of"
++          + " strings for paths to be excluded from the copy."));
 +
  
    public static final String PRESERVE_STATUS_DEFAULT = "-prbugpct";
    private final String confLabel;
-diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
-index d8f3ff7..f46456a 100644
---- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
-+++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
+index d8f3ff7..7a50425 100644
+--- a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptions.java
 @@ -69,7 +69,12 @@
  
    private Path targetPath;
  
 -  // targetPathExist is a derived field, it's initialized in the 
 +  /**
-+   * Path to a file of exclusion patterns.
++   * The path to a file containing a list of paths to filter out of the copy.
 +   */
-+  private String exclusionsFile;
++  private String filtersFile;
 +
 +  // targetPathExist is a derived field, it's initialized in the
    // beginning of distcp.
@@ -102,59 +115,58 @@ index d8f3ff7..f46456a 100644
        this.sourcePaths = that.getSourcePaths();
        this.targetPath = that.getTargetPath();
        this.targetPathExists = that.getTargetPathExists();
-+      this.exclusionsFile = that.getExclusionsFile();
++      this.filtersFile = that.getFiltersFile();
      }
    }
  
-@@ -549,6 +555,25 @@ public boolean setTargetPathExists(boolean targetPathExists) {
+@@ -549,6 +555,24 @@ public boolean setTargetPathExists(boolean targetPathExists) {
      return this.targetPathExists = targetPathExists;
    }
  
 +  /**
-+   * File path (hdfs:// or file://) that contains the list of Patterns
-+   * for paths to be excluded from the file copy.
++   * File path that contains the list of patterns
++   * for paths to be filtered from the file copy.
 +   *
-+   * @return - Exclusions listing file path.
++   * @return - Filter  file path.
 +   */
-+  public final String getExclusionsFile() {
-+    return exclusionsFile;
++  public final String getFiltersFile() {
++    return filtersFile;
 +  }
 +
 +  /**
-+   * Set exclusionsFile.
-+   * @param exclusionsFilename The path to a list of patterns to exclude
-+   *                           from copy.
++   * Set filtersFile.
++   * @param filtersFilename The path to a list of patterns to exclude from copy.
 +   */
-+  public final void setExclusionsFile(String exclusionsFilename) {
-+    this.exclusionsFile = exclusionsFilename;
++  public final void setFiltersFile(String filtersFilename) {
++    this.filtersFile = filtersFilename;
 +  }
 +
    public void validate(DistCpOptionSwitch option, boolean value) {
  
      boolean syncFolder = (option == DistCpOptionSwitch.SYNC_FOLDERS ?
-@@ -623,6 +648,10 @@ public void appendToConf(Configuration conf) {
+@@ -623,6 +647,10 @@ public void appendToConf(Configuration conf) {
          String.valueOf(mapBandwidth));
      DistCpOptionSwitch.addToConf(conf, DistCpOptionSwitch.PRESERVE_STATUS,
          DistCpUtils.packAttributes(preserveStatus));
-+    if (exclusionsFile != null) {
-+      DistCpOptionSwitch.addToConf(conf, DistCpOptionSwitch.EXCLUSIONS,
-+          exclusionsFile);
++    if (filtersFile != null) {
++      DistCpOptionSwitch.addToConf(conf, DistCpOptionSwitch.FILTERS,
++          filtersFile);
 +    }
    }
  
    /**
-@@ -645,6 +674,7 @@ public String toString() {
+@@ -645,6 +673,7 @@ public String toString() {
          ", targetPath=" + targetPath +
          ", targetPathExists=" + targetPathExists +
          ", preserveRawXattrs=" + preserveRawXattrs +
-+        ", exclusionsFile='" + exclusionsFile + '\'' +
++        ", filtersFile='" + filtersFile + '\'' +
          '}';
    }
  
-diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
-index 1729479..46756a7 100644
---- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
-+++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
+index 1729479..c2bec22 100644
+--- a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/OptionsParser.java
 @@ -86,37 +86,7 @@ public static DistCpOptions parse(String args[]) throws IllegalArgumentException
          Arrays.toString(args), e);
      }
@@ -275,9 +287,9 @@ index 1729479..46756a7 100644
 +
 +    parseSizeLimit(command);
 +
-+    if (command.hasOption(DistCpOptionSwitch.EXCLUSIONS.getSwitch())) {
-+      option.setExclusionsFile(getVal(command,
-+          DistCpOptionSwitch.EXCLUSIONS.getSwitch()));
++    if (command.hasOption(DistCpOptionSwitch.FILTERS.getSwitch())) {
++      option.setFiltersFile(getVal(command,
++          DistCpOptionSwitch.FILTERS.getSwitch()));
 +    }
 +
 +    return option;
@@ -470,256 +482,351 @@ index 1729479..46756a7 100644
      return option;
    }
  
-diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-index cca36df..248f552 100644
---- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-+++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/mapred/CopyMapper.java
-@@ -18,12 +18,23 @@
- 
- package org.apache.hadoop.tools.mapred;
- 
-+import java.io.BufferedReader;
- import java.io.FileNotFoundException;
-+import java.io.File;
-+import java.io.FileInputStream;
- import java.io.FileOutputStream;
-+import java.io.InputStream;
-+import java.io.InputStreamReader;
- import java.io.IOException;
- import java.io.OutputStream;
-+import java.net.URI;
-+import java.nio.charset.Charset;
- import java.util.Arrays;
-+import java.util.ArrayList;
- import java.util.EnumSet;
-+import java.util.List;
-+import java.util.regex.Matcher;
-+import java.util.regex.Pattern;
- 
- import org.apache.commons.logging.Log;
- import org.apache.commons.logging.LogFactory;
-@@ -32,6 +43,7 @@
- import org.apache.hadoop.fs.FileStatus;
- import org.apache.hadoop.fs.FileSystem;
- import org.apache.hadoop.fs.Path;
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyFilter.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyFilter.java
+new file mode 100644
+index 0000000..0532f03
+--- /dev/null
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyFilter.java
+@@ -0,0 +1,102 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.apache.hadoop.tools;
++
++import org.apache.commons.logging.Log;
++import org.apache.commons.logging.LogFactory;
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.fs.*;
 +import org.apache.hadoop.io.IOUtils;
- import org.apache.hadoop.io.Text;
- import org.apache.hadoop.mapreduce.JobContext;
- import org.apache.hadoop.mapreduce.Mapper;
-@@ -43,6 +55,8 @@
- import org.apache.hadoop.tools.util.DistCpUtils;
- import org.apache.hadoop.util.StringUtils;
- 
++
++import java.io.*;
++import java.nio.charset.Charset;
++import java.util.ArrayList;
++import java.util.List;
++
 +import com.google.common.annotations.VisibleForTesting;
 +
- /**
-  * Mapper class that executes the DistCp copy operation.
-  * Implements the o.a.h.mapreduce.Mapper interface.
-@@ -55,13 +69,42 @@
-    * for backward compatibility.)
-    */
-   public static enum Counter {
--    COPY,         // Number of files received by the mapper for copy.
--    SKIP,         // Number of files skipped.
--    FAIL,         // Number of files that failed to be copied.
--    BYTESCOPIED,  // Number of bytes actually copied by the copy-mapper, total.
--    BYTESEXPECTED,// Number of bytes expected to be copied.
--    BYTESFAILED,  // Number of bytes that failed to be copied.
--    BYTESSKIPPED, // Number of bytes that were skipped from copy.
-+    /**
-+     * COPY Number of files received by the mapper for copy.
-+     */
-+    COPY,
-+    /**
-+     * Number of files skipped.
-+     */
-+    SKIP,
-+    /**
-+     * Number of files that failed to be copied.
-+     */
-+    FAIL,
-+    /**
-+     * Number of files excluded.
-+     */
-+    EXCLUDED,
-+    /**
-+     * Number of bytes actually copied by the copy-mapper, total.
-+     */
-+    BYTESCOPIED,
-+    /**
-+     * Number of bytes expected to be copied.
-+     */
-+    BYTESEXPECTED,
-+    /**
-+     * Number of bytes that failed to be copied.
-+     */
-+    BYTESFAILED,
-+    /**
-+     * Number of bytes that were skipped.
-+     */
-+    BYTESSKIPPED,
-+    /**
-+     * Number of bytes that were excluded from copy.
-+     */
-+    BYTESEXCLUDED,
-   }
- 
-   /**
-@@ -83,6 +126,7 @@
-   private boolean overWrite = false;
-   private boolean append = false;
-   private EnumSet<FileAttribute> preserve = EnumSet.noneOf(FileAttribute.class);
-+  private List<Pattern> exclusionPatterns;
- 
-   private FileSystem targetFS = null;
-   private Path    targetWorkPath = null;
-@@ -118,6 +162,59 @@ public void setup(Context context) throws IOException, InterruptedException {
-     if (conf.get(DistCpConstants.CONF_LABEL_SSL_CONF) != null) {
-       initializeSSLConf(context);
-     }
 +
-+    if (conf.get(DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE, null) != null) {
-+      initializeExclusionPatterns(context);
-+    }
-+  }
++/**
++ * A CopyFilter which compares a Path to each string in a filter list.
++ *
++ */
++public class SimpleCopyFilter extends CopyFilter {
 +
-+ /**
-+   * Sets the list of exclusionsPatterns.
-+   * Simplifies testing of the exclusions feature.
-+   *
-+   * @param exclusionPatternsList a list of Patterns to be excluded
-+   */
-+  @VisibleForTesting
-+  protected final void setExclusionPatterns(
-+      final List<Pattern> exclusionPatternsList) {
-+    this.exclusionPatterns = exclusionPatternsList;
-+  }
++  private static final Log LOG = LogFactory.getLog(SimpleCopyFilter.class);
++  private List<String> filters;
 +
 +  /**
-+   * Initialize Exclusions Patterns.
++   * Constructor for loading a list of filters, used by
++   * CopyFilter#getCopyFilter.
 +   *
-+   * @param  context     - Mapper context
-+   * @throws IOException - If any
 +   */
-+  private void initializeExclusionPatterns(Context context)
-+      throws IOException {
-+    LOG.info("Initialze Exclusion Patterns");
++  protected SimpleCopyFilter(Configuration conf) {
++    String filterFilename = conf.get(
++        DistCpConstants.CONF_LABEL_FILTERS_FILE);
++    File exclusionsFile = new File(filterFilename);
 +
-+    URI[] cacheURIs = context.getCacheFiles();
-+    Path[] cacheFiles = new Path[cacheURIs.length];
-+
-+    for (int i = 0; i < cacheURIs.length; i++) {
-+      cacheFiles[i] = new Path(cacheURIs[0]);
-+    }
-+
-+    String exclusionsFile = conf.get(
-+        DistCpConstants.CONF_LABEL_EXCLUSIONS_FILE);
-+    Path exclusionsPath = findCacheFile(cacheFiles, exclusionsFile);
-+
-+    exclusionPatterns = new ArrayList<>();
++    filters = new ArrayList<>();
 +
 +    BufferedReader reader = null;
 +    try {
-+      InputStream is = new FileInputStream(new File(exclusionsPath.getName()));
++      InputStream is = new FileInputStream(exclusionsFile);
 +      reader = new BufferedReader(new InputStreamReader(is,
 +          Charset.forName("UTF-8")));
 +      String line;
 +      while ((line = reader.readLine()) != null) {
-+        exclusionPatterns.add(Pattern.compile(line));
++        filters.add(line);
 +      }
++    } catch (FileNotFoundException notFound) {
++      LOG.error("Can't find filters file " + filterFilename);
++    } catch (IOException cantRead) {
++      LOG.error("An error occurred while attempting to read from " +
++          filterFilename);
 +    } finally {
 +      IOUtils.cleanup(LOG, reader);
 +    }
-   }
- 
-   /**
-@@ -204,6 +301,13 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
-     final boolean preserveRawXattrs = context.getConfiguration().getBoolean(
-         DistCpConstants.CONF_LABEL_PRESERVE_RAWXATTRS, false);
- 
-+    if (canExclude(sourceFileStatus)) {
-+      LOG.info("Excluding " + sourceFileStatus.getPath().toString()
-+          + " from copy.");
-+      updateExcludeCounters(context, sourceFileStatus);
-+      return;
-+    }
++  }
 +
-     final String description = "Copying " + sourcePath + " to " + target;
-     context.setStatus(description);
- 
-@@ -261,6 +365,25 @@ public void map(Text relPath, CopyListingFileStatus sourceFileStatus,
-     }
-   }
- 
 +  /**
-+   * Predicate to determine if a file can be excluded from copy.
-+   *
-+   * @param sourceFileStatus file status object
-+   * @return boolean
++   * Constructor for testing.
 +   */
-+  private boolean canExclude(CopyListingFileStatus sourceFileStatus) {
-+    if (exclusionPatterns != null) {
-+      for (Pattern pattern : exclusionPatterns) {
-+        Matcher matcher = pattern.matcher(
-+            sourceFileStatus.getPath().toString());
-+        if (matcher.find()) {
-+          return true;
-+        }
++  @VisibleForTesting
++  protected SimpleCopyFilter() {}
++
++  /**
++   * Sets the list of filters to exclude files from copy.
++   * Simplifies testing of the filters feature.
++   *
++   * @param filtersList a list of Patterns to be excluded
++   */
++  @VisibleForTesting
++  protected final void setFilters(List<String> filtersList) {
++    this.filters = filtersList;
++  }
++
++  /** {@inheritDoc} */
++  @Override
++  public boolean shouldCopy(Path path) {
++    for (String filter : filters) {
++      if (path.toString().contains(filter)) {
++        return false;
 +      }
 +    }
-+    return false;
++    return true;
 +  }
++}
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java
+index 4ea1dc9..502269f 100644
+--- a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java
+@@ -58,6 +58,7 @@
+   private long totalBytesToCopy = 0;
+   private int numListstatusThreads = 1;
+   private final int maxRetries = 3;
++  private CopyFilter copyFilter;
+ 
+   /**
+    * Protected constructor, to initialize configuration.
+@@ -71,6 +72,7 @@ protected SimpleCopyListing(Configuration configuration, Credentials credentials
+     numListstatusThreads = getConf().getInt(
+         DistCpConstants.CONF_LABEL_LISTSTATUS_THREADS,
+         DistCpConstants.DEFAULT_LISTSTATUS_THREADS);
++    copyFilter = CopyFilter.getCopyFilter(getConf());
+   }
+ 
+   @VisibleForTesting
+@@ -264,11 +266,10 @@ private Path computeSourceRootPath(FileStatus sourceStatus,
+    * Provide an option to skip copy of a path, Allows for exclusion
+    * of files such as {@link org.apache.hadoop.mapreduce.lib.output.FileOutputCommitter#SUCCEEDED_FILE_NAME}
+    * @param path - Path being considered for copy while building the file listing
+-   * @param options - Input options passed during DistCp invocation
+    * @return - True if the path should be considered for copy, false otherwise
+    */
+-  protected boolean shouldCopy(Path path, DistCpOptions options) {
+-    return true;
++  protected boolean shouldCopy(Path path) {
++    return copyFilter.shouldCopy(path);
+   }
+ 
+   /** {@inheritDoc} */
+@@ -455,14 +456,12 @@ private void writeToFileListing(SequenceFile.Writer fileListWriter,
+         fileStatus.getPath()) + ", FULL PATH: " + fileStatus.getPath());
+     }
+ 
+-    FileStatus status = fileStatus;
+-
+-    if (!shouldCopy(fileStatus.getPath(), options)) {
++    if (!shouldCopy(fileStatus.getPath())) {
+       return;
+     }
+ 
+     fileListWriter.append(new Text(DistCpUtils.getRelativePath(sourcePathRoot,
+-        fileStatus.getPath())), status);
++        fileStatus.getPath())), fileStatus);
+     fileListWriter.sync();
+ 
+     if (!fileStatus.isDirectory()) {
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/TrueCopyFilter.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/TrueCopyFilter.java
+new file mode 100644
+index 0000000..7cd1068
+--- /dev/null
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/TrueCopyFilter.java
+@@ -0,0 +1,33 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
 +
-   private String getFileType(FileStatus fileStatus) {
-     return fileStatus == null ? "N/A" : (fileStatus.isDirectory() ? "dir" : "file");
-   }
-@@ -304,7 +427,18 @@ private static void updateSkipCounters(Context context,
-                                          FileStatus sourceFile) {
-     incrementCounter(context, Counter.SKIP, 1);
-     incrementCounter(context, Counter.BYTESSKIPPED, sourceFile.getLen());
++package org.apache.hadoop.tools;
++
++import org.apache.hadoop.fs.Path;
++
++/**
++ * A CopyFilter which always returns true.
++ *
++ */
++public class TrueCopyFilter extends CopyFilter {
++
++  /** {@inheritDoc} */
++  public boolean shouldCopy(Path path) {
++    return true;
 +  }
- 
-+  /**
-+   * Increments the EXCLUDED and BYTESEXCLUDED counters.
-+   *
-+   * @param context Mapper context
-+   * @param sourceFile FileStatus of the file being excluded
-+   */
-+  private static void updateExcludeCounters(Context context,
-+                                            FileStatus sourceFile) {
-+    incrementCounter(context, Counter.EXCLUDED, 1);
-+    incrementCounter(context, Counter.BYTESEXCLUDED, sourceFile.getLen());
++}
+diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/package-info.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/package-info.java
+new file mode 100644
+index 0000000..082efd3
+--- /dev/null
++++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/package-info.java
+@@ -0,0 +1,25 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++
++/**
++ * DistCp is a tool for replicating data using a mapreduce.
++ *
++ * @version 2
++ */
++package org.apache.hadoop.tools;
+\ No newline at end of file
+diff --git a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestCopyListing.java b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestCopyListing.java
+index 8381c1b..896763d 100644
+--- a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestCopyListing.java
++++ b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestCopyListing.java
+@@ -95,40 +95,6 @@ protected long getNumberOfPaths() {
    }
  
-   private void handleFailures(IOException exception,
-diff --git hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
-index 6eddfb2..2960403 100644
---- hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
-+++ hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
-@@ -116,7 +116,7 @@ public void testParsebandwidth() {
+   @Test(timeout=10000)
+-  public void testSkipCopy() throws Exception {
+-    SimpleCopyListing listing = new SimpleCopyListing(getConf(), CREDENTIALS) {
+-      @Override
+-      protected boolean shouldCopy(Path path, DistCpOptions options) {
+-        return !path.getName().equals(FileOutputCommitter.SUCCEEDED_FILE_NAME);
+-      }
+-    };
+-    FileSystem fs = FileSystem.get(getConf());
+-    List<Path> srcPaths = new ArrayList<Path>();
+-    srcPaths.add(new Path("/tmp/in4/1"));
+-    srcPaths.add(new Path("/tmp/in4/2"));
+-    Path target = new Path("/tmp/out4/1");
+-    TestDistCpUtils.createFile(fs, "/tmp/in4/1/_SUCCESS");
+-    TestDistCpUtils.createFile(fs, "/tmp/in4/1/file");
+-    TestDistCpUtils.createFile(fs, "/tmp/in4/2");
+-    fs.mkdirs(target);
+-    DistCpOptions options = new DistCpOptions(srcPaths, target);
+-    Path listingFile = new Path("/tmp/list4");
+-    listing.buildListing(listingFile, options);
+-    Assert.assertEquals(listing.getNumberOfPaths(), 3);
+-    SequenceFile.Reader reader = new SequenceFile.Reader(getConf(),
+-        SequenceFile.Reader.file(listingFile));
+-    CopyListingFileStatus fileStatus = new CopyListingFileStatus();
+-    Text relativePath = new Text();
+-    Assert.assertTrue(reader.next(relativePath, fileStatus));
+-    Assert.assertEquals(relativePath.toString(), "/1");
+-    Assert.assertTrue(reader.next(relativePath, fileStatus));
+-    Assert.assertEquals(relativePath.toString(), "/1/file");
+-    Assert.assertTrue(reader.next(relativePath, fileStatus));
+-    Assert.assertEquals(relativePath.toString(), "/2");
+-    Assert.assertFalse(reader.next(relativePath, fileStatus));
+-  }
+-
+-  @Test(timeout=10000)
+   public void testMultipleSrcToFile() {
+     FileSystem fs = null;
+     try {
+diff --git a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestIntegration.java b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestIntegration.java
+index 5726342..ee8e7cc 100644
+--- a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestIntegration.java
++++ b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestIntegration.java
+@@ -242,55 +242,6 @@ private void caseMultiFileTargetPresent(boolean sync) {
+   }
  
-   @Test(expected=IllegalArgumentException.class)
-   public void testParseNonPositiveBandwidth() {
--    OptionsParser.parse(new String[] {
-+    OptionsParser.parse(new String[]{
-         "-bandwidth",
-         "-11",
-         "hdfs://localhost:8020/source/first",
-@@ -125,7 +125,7 @@ public void testParseNonPositiveBandwidth() {
- 
-   @Test(expected=IllegalArgumentException.class)
-   public void testParseZeroBandwidth() {
--    OptionsParser.parse(new String[] {
-+    OptionsParser.parse(new String[]{
-         "-bandwidth",
-         "0",
-         "hdfs://localhost:8020/source/first",
+   @Test(timeout=100000)
+-  public void testCustomCopyListing() {
+-
+-    try {
+-      addEntries(listFile, "multifile1/file3", "multifile1/file4", "multifile1/file5");
+-      createFiles("multifile1/file3", "multifile1/file4", "multifile1/file5");
+-      mkdirs(target.toString());
+-
+-      Configuration conf = getConf();
+-      try {
+-        conf.setClass(DistCpConstants.CONF_LABEL_COPY_LISTING_CLASS,
+-            CustomCopyListing.class, CopyListing.class);
+-        DistCpOptions options = new DistCpOptions(Arrays.
+-            asList(new Path(root + "/" + "multifile1")), target);
+-        options.setSyncFolder(true);
+-        options.setDeleteMissing(false);
+-        options.setOverwrite(false);
+-        try {
+-          new DistCp(conf, options).execute();
+-        } catch (Exception e) {
+-          LOG.error("Exception encountered ", e);
+-          throw new IOException(e);
+-        }
+-      } finally {
+-        conf.unset(DistCpConstants.CONF_LABEL_COPY_LISTING_CLASS);
+-      }
+-
+-      checkResult(target, 2, "file4", "file5");
+-    } catch (IOException e) {
+-      LOG.error("Exception encountered while testing distcp", e);
+-      Assert.fail("distcp failure");
+-    } finally {
+-      TestDistCpUtils.delete(fs, root);
+-    }
+-  }
+-
+-  private static class CustomCopyListing extends SimpleCopyListing {
+-
+-    public CustomCopyListing(Configuration configuration,
+-                             Credentials credentials) {
+-      super(configuration, credentials);
+-    }
+-
+-    @Override
+-    protected boolean shouldCopy(Path path, DistCpOptions options) {
+-      return !path.getName().equals("file3");
+-    }
+-  }
+-
+-  @Test(timeout=100000)
+   public void testMultiFileTargetMissing() {
+     caseMultiFileTargetMissing(false);
+     caseMultiFileTargetMissing(true);
+diff --git a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
+index 6eddfb2..b9d9ada 100644
+--- a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
++++ b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestOptionsParser.java
 @@ -400,7 +400,7 @@ public void testToString() {
      String val = "DistCpOptions{atomicCommit=false, syncFolder=false, deleteMissing=false, " +
          "ignoreFailures=false, maxMaps=20, sslConfigurationFile='null', copyStrategy='uniformsize', " +
          "sourceFileListing=abc, sourcePaths=null, targetPath=xyz, targetPathExists=true, " +
 -        "preserveRawXattrs=false}";
-+        "preserveRawXattrs=false, exclusionsFile='null'}";
++        "preserveRawXattrs=false, filtersFile='null'}";
      Assert.assertEquals(val, option.toString());
      Assert.assertNotSame(DistCpOptionSwitch.ATOMIC_COMMIT.toString(),
          DistCpOptionSwitch.ATOMIC_COMMIT.name());
@@ -733,99 +840,114 @@ index 6eddfb2..2960403 100644
 +    DistCpOptions options = OptionsParser.parse(new String[] {
 +        "hdfs://localhost:8020/source/first",
 +        "hdfs://localhost:8020/target/"});
-+    Assert.assertNull(options.getExclusionsFile());
++    Assert.assertNull(options.getFiltersFile());
 +
 +    options = OptionsParser.parse(new String[] {
-+        "-exclusions",
-+        "/tmp/exclusions.txt",
++        "-filters",
++        "/tmp/filters.txt",
 +        "hdfs://localhost:8020/source/first",
 +        "hdfs://localhost:8020/target/"});
-+    Assert.assertEquals(options.getExclusionsFile(), "/tmp/exclusions.txt");
++    Assert.assertEquals(options.getFiltersFile(), "/tmp/filters.txt");
 +  }
  }
-diff --git hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java
-index ec60fa8..79bc06a 100644
---- hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java
-+++ hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/mapred/TestCopyMapper.java
-@@ -26,6 +26,7 @@
- import java.util.EnumSet;
- import java.util.List;
- import java.util.Random;
-+import java.util.regex.Pattern;
- 
- import org.apache.commons.logging.Log;
- import org.apache.commons.logging.LogFactory;
-@@ -1029,4 +1030,73 @@ private void testPreserveUserGroupImpl(boolean preserve){
-       e.printStackTrace();
-     }
-   }
+diff --git a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestSimpleCopyFilter.java b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestSimpleCopyFilter.java
+new file mode 100644
+index 0000000..2b0998d
+--- /dev/null
++++ b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestSimpleCopyFilter.java
+@@ -0,0 +1,53 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
 +
-+  @Test(timeout=40000)
-+  public void testCopyExclusions() {
-+    try {
-+      deleteState();
-+      createSourceData();
++package org.apache.hadoop.tools;
 +
-+      UserGroupInformation tmpUser = UserGroupInformation.createRemoteUser("guest");
++import org.apache.hadoop.fs.Path;
++import org.junit.Assert;
++import org.junit.Test;
 +
-+      final CopyMapper copyMapper = new CopyMapper();
++import java.util.ArrayList;
++import java.util.List;
 +
-+      final StubContext stubContext =  tmpUser.
-+          doAs(new PrivilegedAction<StubContext>() {
-+            @Override
-+            public StubContext run() {
-+              try {
-+                return new StubContext(getConfiguration(), null, 0);
-+              } catch (Exception e) {
-+                LOG.error("Exception encountered", e);
-+                throw new RuntimeException(e);
-+              }
-+            }
-+          });
++public class TestSimpleCopyFilter {
 +
-+      final Mapper<Text, CopyListingFileStatus, Text, Text>.Context context =
-+          stubContext.getContext();
++  @Test
++  public void testShouldCopyTrue() {
++    List<String> filters = new ArrayList<>();
++    filters.add("test");
 +
-+      touchFile(SOURCE_PATH + "/src/file");
-+      mkdirs(TARGET_PATH);
-+      cluster.getFileSystem().setPermission(new Path(TARGET_PATH), new FsPermission((short)511));
++    SimpleCopyFilter simpleCopyFilter = new SimpleCopyFilter();
++    simpleCopyFilter.setFilters(filters);
 +
-+
-+      final FileSystem tmpFS = tmpUser.doAs(new PrivilegedAction<FileSystem>() {
-+        @Override
-+        public FileSystem run() {
-+          try {
-+            return FileSystem.get(configuration);
-+          } catch (IOException e) {
-+            LOG.error("Exception encountered", e);
-+            Assert.fail("Test failed: " + e.getMessage());
-+            throw new RuntimeException("Test ought to fail here");
-+          }
-+        }
-+      });
-+
-+      tmpUser.doAs(new PrivilegedAction<Integer>() {
-+        @Override
-+        public Integer run() {
-+          try {
-+            List<Pattern> exclusionPatterns = new ArrayList<Pattern>();
-+            exclusionPatterns.add(Pattern.compile("file"));
-+            copyMapper.setup(context);
-+            copyMapper.setExclusionPatterns(exclusionPatterns);
-+            copyMapper.map(new Text("/src/file"),
-+                new CopyListingFileStatus(tmpFS.getFileStatus(
-+                    new Path(SOURCE_PATH + "/src/file"))),
-+                context);
-+            Assert.assertEquals(stubContext.getWriter().values().size(), 0);
-+          } catch (Exception e) {
-+            throw new RuntimeException(e);
-+          }
-+          return null;
-+        }
-+      });
-+    } catch (Exception e) {
-+      LOG.error("Exception encountered", e);
-+      Assert.fail("Test failed: " + e.getMessage());
-+    }
++    Path shouldCopyPath = new Path("/user/bob");
++    Assert.assertTrue(simpleCopyFilter.shouldCopy(shouldCopyPath));
 +  }
- }
++
++  @Test
++  public void testShouldCopyFalse() {
++    List<String> filters = new ArrayList<>();
++    filters.add("test");
++
++    SimpleCopyFilter simpleCopyFilter = new SimpleCopyFilter();
++    simpleCopyFilter.setFilters(filters);
++
++    Path shouldNotCopyPath = new Path("/user/testing");
++    Assert.assertFalse(simpleCopyFilter.shouldCopy(shouldNotCopyPath));
++  }
++}
+diff --git a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestTrueCopyFilter.java b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestTrueCopyFilter.java
+new file mode 100644
+index 0000000..2ea60a9
+--- /dev/null
++++ b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestTrueCopyFilter.java
+@@ -0,0 +1,36 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.apache.hadoop.tools;
++
++import org.apache.hadoop.fs.Path;
++import org.junit.Assert;
++import org.junit.Test;
++
++public class TestTrueCopyFilter {
++
++  @Test
++  public void testShouldCopy() {
++    Assert.assertTrue(new TrueCopyFilter().shouldCopy(new Path("fake")));
++  }
++
++  @Test
++  public void testShouldCopyWithNull() {
++    Assert.assertTrue(new TrueCopyFilter().shouldCopy(new Path("fake")));
++  }
++}
