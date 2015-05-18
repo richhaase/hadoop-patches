@@ -1,9 +1,9 @@
 diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/CopyFilter.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/CopyFilter.java
 new file mode 100644
-index 0000000..2c05ad9
+index 0000000..3da364c
 --- /dev/null
 +++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/CopyFilter.java
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,60 @@
 +/**
 + * Licensed to the Apache Software Foundation (ASF) under one
 + * or more contributor license agreements.  See the NOTICE file
@@ -25,8 +25,6 @@ index 0000000..2c05ad9
 +
 +import org.apache.hadoop.conf.Configuration;
 +import org.apache.hadoop.fs.Path;
-+
-+import java.io.File;
 +
 +/**
 + * Interface for excluding files from DistCp.
@@ -62,7 +60,7 @@ index 0000000..2c05ad9
 +    } else {
 +      String filterFilename = conf.get(
 +          DistCpConstants.CONF_LABEL_FILTERS_FILE);
-+      return new RegexCopyFilter(new File(filterFilename));
++      return new RegexCopyFilter(filterFilename);
 +    }
 +  }
 +}
@@ -492,7 +490,7 @@ index 1729479..37add1e 100644
  
 diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java
 new file mode 100644
-index 0000000..4e46b24
+index 0000000..1c2b324
 --- /dev/null
 +++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java
 @@ -0,0 +1,98 @@
@@ -543,8 +541,8 @@ index 0000000..4e46b24
 +   * Constructor, sets up a File object to read filter patterns from and
 +   * the List to store the patterns.
 +   */
-+  protected RegexCopyFilter(File filtersFile) {
-+    this.filtersFile = filtersFile;
++  protected RegexCopyFilter(String filtersFilename) {
++    filtersFile = new File(filtersFilename);
 +    filters = new ArrayList<>();
 +  }
 +
@@ -680,7 +678,7 @@ index 4ea1dc9..8f50913 100644
      if (!fileStatus.isDirectory()) {
 diff --git a/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/TrueCopyFilter.java b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/TrueCopyFilter.java
 new file mode 100644
-index 0000000..7cd1068
+index 0000000..b58dd9c
 --- /dev/null
 +++ b/hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/TrueCopyFilter.java
 @@ -0,0 +1,33 @@
@@ -712,7 +710,7 @@ index 0000000..7cd1068
 + */
 +public class TrueCopyFilter extends CopyFilter {
 +
-+  /** {@inheritDoc} */
++  @Override
 +  public boolean shouldCopy(Path path) {
 +    return true;
 +  }
@@ -890,7 +888,7 @@ index 6eddfb2..b9d9ada 100644
  }
 diff --git a/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestRegexCopyFilter.java b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestRegexCopyFilter.java
 new file mode 100644
-index 0000000..5fc142e
+index 0000000..5618a0b
 --- /dev/null
 +++ b/hadoop-tools/hadoop-distcp/src/test/java/org/apache/hadoop/tools/TestRegexCopyFilter.java
 @@ -0,0 +1,113 @@
@@ -930,7 +928,7 @@ index 0000000..5fc142e
 +    List<Pattern> filters = new ArrayList<>();
 +    filters.add(Pattern.compile("user"));
 +
-+    RegexCopyFilter regexCopyFilter = new RegexCopyFilter(new File("fake"));
++    RegexCopyFilter regexCopyFilter = new RegexCopyFilter("fakeFile");
 +    regexCopyFilter.setFilters(filters);
 +
 +    Path shouldCopyPath = new Path("/user/bar");
@@ -942,7 +940,7 @@ index 0000000..5fc142e
 +    List<Pattern> filters = new ArrayList<>();
 +    filters.add(Pattern.compile(".*test.*"));
 +
-+    RegexCopyFilter regexCopyFilter = new RegexCopyFilter(new File("fake"));
++    RegexCopyFilter regexCopyFilter = new RegexCopyFilter("fakeFile");
 +    regexCopyFilter.setFilters(filters);
 +
 +    Path shouldNotCopyPath = new Path("/user/testing");
@@ -960,7 +958,7 @@ index 0000000..5fc142e
 +
 +    int shouldCopyCount = 0;
 +
-+    RegexCopyFilter regexCopyFilter = new RegexCopyFilter(new File("fake"));
++    RegexCopyFilter regexCopyFilter = new RegexCopyFilter("fakeFile");
 +    regexCopyFilter.setFilters(filters);
 +
 +    for (Path path: toCopy) {
@@ -983,7 +981,7 @@ index 0000000..5fc142e
 +
 +    int shouldCopyCount = 0;
 +
-+    RegexCopyFilter regexCopyFilter = new RegexCopyFilter(new File("fake"));
++    RegexCopyFilter regexCopyFilter = new RegexCopyFilter("fakeFile");
 +    regexCopyFilter.setFilters(filters);
 +
 +    for (Path path: toCopy) {
