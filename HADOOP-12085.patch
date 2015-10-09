@@ -1,0 +1,74 @@
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
+index ed4a0b2..658351b 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/DistCpOptionSwitch.java
+@@ -184,8 +184,8 @@
+    * a file to be copied excludes that file from the copy job.
+    */
+   FILTERS(DistCpConstants.CONF_LABEL_FILTERS_FILE,
+-      new Option("filters", true, "The path to a file containing a list of"
+-          + " strings for paths to be excluded from the copy."));
++      new Option("filters", true, "List of patterns to be excluded from " +
++              "the copy."));
+ 
+ 
+   public static final String PRESERVE_STATUS_DEFAULT = "-prbugpct";
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java
+index 1c2b324..23d8f7f 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/RegexCopyFilter.java
+@@ -90,6 +90,9 @@ protected final void setFilters(List<Pattern> filtersList) {
+   public boolean shouldCopy(Path path) {
+     for (Pattern filter : filters) {
+       if (filter.matcher(path.toString()).matches()) {
++        if (LOG.isDebugEnabled()) {
++          LOG.debug(path + " is filtered out of the CopyListing.");
++        }
+         return false;
+       }
+     }
+diff --git hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java
+index 8f50913..96d15fe 100644
+--- hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java
++++ hadoop-tools/hadoop-distcp/src/main/java/org/apache/hadoop/tools/SimpleCopyListing.java
+@@ -451,25 +451,23 @@ private void writeToFileListingRoot(SequenceFile.Writer fileListWriter,
+   private void writeToFileListing(SequenceFile.Writer fileListWriter,
+                                   CopyListingFileStatus fileStatus,
+                                   Path sourcePathRoot) throws IOException {
+-    if (LOG.isDebugEnabled()) {
+-      LOG.debug("REL PATH: " + DistCpUtils.getRelativePath(sourcePathRoot,
+-        fileStatus.getPath()) + ", FULL PATH: " + fileStatus.getPath());
+-    }
+-
+-    if (!shouldCopy(fileStatus.getPath())) {
+-      return;
+-    }
++    if (shouldCopy(fileStatus.getPath())) {
++      if (LOG.isDebugEnabled()) {
++        LOG.debug("REL PATH: " + DistCpUtils.getRelativePath(sourcePathRoot,
++            fileStatus.getPath()) + ", FULL PATH: " + fileStatus.getPath());
++      }
+ 
+-    fileListWriter.append(new Text(DistCpUtils.getRelativePath(sourcePathRoot,
+-        fileStatus.getPath())), fileStatus);
+-    fileListWriter.sync();
++      fileListWriter.append(new Text(DistCpUtils.getRelativePath(sourcePathRoot,
++          fileStatus.getPath())), fileStatus);
++      fileListWriter.sync();
+ 
+-    if (!fileStatus.isDirectory()) {
+-      totalBytesToCopy += fileStatus.getLen();
+-    } else {
+-      totalDirs++;
++      if (!fileStatus.isDirectory()) {
++        totalBytesToCopy += fileStatus.getLen();
++      } else {
++        totalDirs++;
++      }
++      totalPaths++;
++      maybePrintStats();
+     }
+-    totalPaths++;
+-    maybePrintStats();
+   }
+ }
