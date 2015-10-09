@@ -1,0 +1,14 @@
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/java/org/apache/hadoop/yarn/api/records/FinalApplicationStatus.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/java/org/apache/hadoop/yarn/api/records/FinalApplicationStatus.java
+index 170c25a..783d7cb 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/java/org/apache/hadoop/yarn/api/records/FinalApplicationStatus.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/java/org/apache/hadoop/yarn/api/records/FinalApplicationStatus.java
+@@ -38,5 +38,8 @@
+   FAILED,
+ 
+   /** Application which was terminated by a user or admin. */
+-  KILLED
++  KILLED,
++
++  /** Application which has subtasks with multiple end states. */
++  ENDED
+ }
