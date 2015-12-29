@@ -1,0 +1,508 @@
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/AbstractYarnScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/AbstractYarnScheduler.java
+index abd72bf..78623a6 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/AbstractYarnScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/AbstractYarnScheduler.java
+@@ -56,6 +56,7 @@
+ import org.apache.hadoop.yarn.api.records.ResourceRequest;
+ import org.apache.hadoop.yarn.conf.YarnConfiguration;
+ import org.apache.hadoop.yarn.exceptions.YarnException;
++import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
+ import org.apache.hadoop.yarn.proto.YarnServiceProtos.SchedulerResourceTypes;
+ import org.apache.hadoop.yarn.server.api.protocolrecords.NMContainerStatus;
+ import org.apache.hadoop.yarn.server.resourcemanager.RMAuditLogger;
+@@ -151,6 +152,44 @@ public void serviceInit(Configuration conf) throws Exception {
+     super.serviceInit(conf);
+   }
+ 
++  protected void validateConf(Configuration conf) {
++    // validate scheduler memory allocation setting
++    int minMem = conf.getInt(
++            YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB,
++            YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_MB);
++    int maxMem = conf.getInt(
++            YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB,
++            YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_MB);
++
++    if (minMem <= 0 || minMem > maxMem) {
++      throw new YarnRuntimeException("Invalid resource scheduler memory"
++              + " allocation configuration"
++              + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB
++              + "=" + minMem
++              + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB
++              + "=" + maxMem + ", min and max should be greater than 0"
++              + ", max should be no smaller than min.");
++    }
++
++    // validate scheduler vcores allocation setting
++    int minVcores = conf.getInt(
++            YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES,
++            YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES);
++    int maxVcores = conf.getInt(
++            YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES,
++            YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES);
++
++    if (minVcores <= 0 || minVcores > maxVcores) {
++      throw new YarnRuntimeException("Invalid resource scheduler vcores"
++              + " allocation configuration"
++              + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES
++              + "=" + minVcores
++              + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES
++              + "=" + maxVcores + ", min and max should be greater than 0"
++              + ", max should be no smaller than min.");
++    }
++  }
++
+   public List<Container> getTransferredContainers(
+       ApplicationAttemptId currentAttempt) {
+     ApplicationId appId = currentAttempt.getApplicationId();
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/CapacityScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/CapacityScheduler.java
+index 159c7a5..58fc2b8 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/CapacityScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/CapacityScheduler.java
+@@ -66,7 +66,6 @@
+ import org.apache.hadoop.yarn.api.records.ResourceRequest;
+ import org.apache.hadoop.yarn.conf.YarnConfiguration;
+ import org.apache.hadoop.yarn.exceptions.YarnException;
+-import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
+ import org.apache.hadoop.yarn.proto.YarnServiceProtos.SchedulerResourceTypes;
+ import org.apache.hadoop.yarn.security.YarnAuthorizationProvider;
+ import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
+@@ -165,44 +164,6 @@ public int compare(CSQueue q1, CSQueue q2) {
+   public void setConf(Configuration conf) {
+       yarnConf = conf;
+   }
+-  
+-  private void validateConf(Configuration conf) {
+-    // validate scheduler memory allocation setting
+-    int minMem = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_MB);
+-    int maxMem = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_MB);
+-
+-    if (minMem <= 0 || minMem > maxMem) {
+-      throw new YarnRuntimeException("Invalid resource scheduler memory"
+-        + " allocation configuration"
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB
+-        + "=" + minMem
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB
+-        + "=" + maxMem + ", min and max should be greater than 0"
+-        + ", max should be no smaller than min.");
+-    }
+-
+-    // validate scheduler vcores allocation setting
+-    int minVcores = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES);
+-    int maxVcores = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES);
+-
+-    if (minVcores <= 0 || minVcores > maxVcores) {
+-      throw new YarnRuntimeException("Invalid resource scheduler vcores"
+-        + " allocation configuration"
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES
+-        + "=" + minVcores
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES
+-        + "=" + maxVcores + ", min and max should be greater than 0"
+-        + ", max should be no smaller than min.");
+-    }
+-  }
+ 
+   @Override
+   public Configuration getConf() {
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java
+index 9c16e49..95f8429 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairScheduler.java
+@@ -50,7 +50,6 @@
+ import org.apache.hadoop.yarn.api.records.Resource;
+ import org.apache.hadoop.yarn.api.records.ResourceOption;
+ import org.apache.hadoop.yarn.api.records.ResourceRequest;
+-import org.apache.hadoop.yarn.conf.YarnConfiguration;
+ import org.apache.hadoop.yarn.exceptions.YarnException;
+ import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
+ import org.apache.hadoop.yarn.proto.YarnServiceProtos.SchedulerResourceTypes;
+@@ -228,44 +227,6 @@ public boolean isAtLeastReservationThreshold(
+         resourceCalculator, clusterResource, resource, reservationThreshold);
+   }
+ 
+-  private void validateConf(Configuration conf) {
+-    // validate scheduler memory allocation setting
+-    int minMem = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_MB);
+-    int maxMem = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_MB);
+-
+-    if (minMem < 0 || minMem > maxMem) {
+-      throw new YarnRuntimeException("Invalid resource scheduler memory"
+-        + " allocation configuration"
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB
+-        + "=" + minMem
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB
+-        + "=" + maxMem + ", min should equal greater than 0"
+-        + ", max should be no smaller than min.");
+-    }
+-
+-    // validate scheduler vcores allocation setting
+-    int minVcores = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES);
+-    int maxVcores = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES);
+-
+-    if (minVcores < 0 || minVcores > maxVcores) {
+-      throw new YarnRuntimeException("Invalid resource scheduler vcores"
+-        + " allocation configuration"
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES
+-        + "=" + minVcores
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES
+-        + "=" + maxVcores + ", min should equal greater than 0"
+-        + ", max should be no smaller than min.");
+-    }
+-  }
+-
+   public FairSchedulerConfiguration getConf() {
+     return conf;
+   }
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/FifoScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/FifoScheduler.java
+index 8e75d11..092af04 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/FifoScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/main/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/FifoScheduler.java
+@@ -51,7 +51,6 @@
+ import org.apache.hadoop.yarn.api.records.Resource;
+ import org.apache.hadoop.yarn.api.records.ResourceRequest;
+ import org.apache.hadoop.yarn.conf.YarnConfiguration;
+-import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
+ import org.apache.hadoop.yarn.factories.RecordFactory;
+ import org.apache.hadoop.yarn.factory.providers.RecordFactoryProvider;
+ import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
+@@ -268,26 +267,6 @@ public synchronized void setConf(Configuration conf) {
+     this.conf = conf;
+   }
+   
+-  private void validateConf(Configuration conf) {
+-    // validate scheduler memory allocation setting
+-    int minMem = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MINIMUM_ALLOCATION_MB);
+-    int maxMem = conf.getInt(
+-      YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB,
+-      YarnConfiguration.DEFAULT_RM_SCHEDULER_MAXIMUM_ALLOCATION_MB);
+-
+-    if (minMem <= 0 || minMem > maxMem) {
+-      throw new YarnRuntimeException("Invalid resource scheduler memory"
+-        + " allocation configuration"
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB
+-        + "=" + minMem
+-        + ", " + YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB
+-        + "=" + maxMem + ", min and max should be greater than 0"
+-        + ", max should be no smaller than min.");
+-    }
+-  }
+-  
+   @Override
+   public synchronized Configuration getConf() {
+     return conf;
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/TestAbstractYarnScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/TestAbstractYarnScheduler.java
+index 7c33f78..007896b 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/TestAbstractYarnScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/TestAbstractYarnScheduler.java
+@@ -18,6 +18,8 @@
+ 
+ package org.apache.hadoop.yarn.server.resourcemanager.scheduler;
+ 
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
+ import static org.mockito.Mockito.mock;
+ import static org.mockito.Mockito.when;
+ 
+@@ -28,6 +30,7 @@
+ import java.util.List;
+ import java.util.Map;
+ 
++import org.apache.hadoop.conf.Configuration;
+ import org.apache.hadoop.yarn.api.records.ApplicationAccessType;
+ import org.apache.hadoop.yarn.api.records.Container;
+ import org.apache.hadoop.yarn.api.records.ContainerId;
+@@ -37,6 +40,7 @@
+ import org.apache.hadoop.yarn.api.records.ResourceOption;
+ import org.apache.hadoop.yarn.api.records.ResourceRequest;
+ import org.apache.hadoop.yarn.conf.YarnConfiguration;
++import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
+ import org.apache.hadoop.yarn.server.resourcemanager.MockAM;
+ import org.apache.hadoop.yarn.server.resourcemanager.MockNM;
+ import org.apache.hadoop.yarn.server.resourcemanager.MockNodes;
+@@ -62,6 +66,53 @@ public TestAbstractYarnScheduler(SchedulerType type) {
+     super(type);
+   }
+ 
++
++  @Test (timeout = 30000)
++  public void testConfValidation() throws Exception {
++
++    Configuration conf = new YarnConfiguration();
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 2048);
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 1024);
++    try {
++      new MockRM(conf);
++      fail("Exception is expected because the min memory allocation is" +
++              " larger than the max memory allocation.");
++    } catch (YarnRuntimeException e) {
++      // Exception is expected.
++      assertTrue("The thrown exception is not the expected one.",
++              e.getMessage().startsWith(
++                      "Invalid resource scheduler memory"));
++    }
++
++    conf = new YarnConfiguration();
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 0);
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 1024);
++    try {
++      new MockRM(conf);
++      fail("Exception is expected because the min memory allocation is 0 " +
++              "or less");
++    } catch (YarnRuntimeException e) {
++      // Exception is expected.
++      assertTrue("The thrown exception is not the expected one.",
++              e.getMessage().startsWith(
++                      "Invalid resource scheduler memory"));
++    }
++
++    conf = new YarnConfiguration();
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES, 2);
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES, 1);
++    try {
++      new MockRM(conf);
++      fail("Exception is expected because the min vcores allocation is" +
++              " larger than the max vcores allocation.");
++    } catch (YarnRuntimeException e) {
++      // Exception is expected.
++      assertTrue("The thrown exception is not the expected one.",
++              e.getMessage().startsWith(
++                      "Invalid resource scheduler vcores"));
++    }
++  }
++
+   @Test
+   public void testMaximimumAllocationMemory() throws Exception {
+     final int node1MaxMemory = 15 * 1024;
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/TestCapacityScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/TestCapacityScheduler.java
+index 7c95cdc..49f0c75 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/TestCapacityScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/capacity/TestCapacityScheduler.java
+@@ -210,40 +210,6 @@ public void tearDown() throws Exception {
+     }
+   }
+ 
+-
+-  @Test (timeout = 30000)
+-  public void testConfValidation() throws Exception {
+-    ResourceScheduler scheduler = new CapacityScheduler();
+-    scheduler.setRMContext(resourceManager.getRMContext());
+-    Configuration conf = new YarnConfiguration();
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 2048);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 1024);
+-    try {
+-      scheduler.reinitialize(conf, mockContext);
+-      fail("Exception is expected because the min memory allocation is" +
+-        " larger than the max memory allocation.");
+-    } catch (YarnRuntimeException e) {
+-      // Exception is expected.
+-      assertTrue("The thrown exception is not the expected one.",
+-        e.getMessage().startsWith(
+-          "Invalid resource scheduler memory"));
+-    }
+-
+-    conf = new YarnConfiguration();
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES, 2);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES, 1);
+-    try {
+-      scheduler.reinitialize(conf, mockContext);
+-      fail("Exception is expected because the min vcores allocation is" +
+-        " larger than the max vcores allocation.");
+-    } catch (YarnRuntimeException e) {
+-      // Exception is expected.
+-      assertTrue("The thrown exception is not the expected one.",
+-        e.getMessage().startsWith(
+-          "Invalid resource scheduler vcores"));
+-    }
+-  }
+-
+   private org.apache.hadoop.yarn.server.resourcemanager.NodeManager
+       registerNode(String hostName, int containerManagerPort, int httpPort,
+           String rackName, Resource capability)
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairSchedulerTestBase.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairSchedulerTestBase.java
+index 3caeb3c..e54e041 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairSchedulerTestBase.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/FairSchedulerTestBase.java
+@@ -50,7 +50,6 @@
+ import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.AppAddedSchedulerEvent;
+ import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.AppAttemptAddedSchedulerEvent;
+ import org.apache.hadoop.yarn.server.utils.BuilderUtils;
+-import org.apache.hadoop.yarn.util.Clock;
+ 
+ public class FairSchedulerTestBase {
+   public final static String TEST_DIR =
+@@ -72,7 +71,7 @@ public Configuration createConfiguration() {
+     Configuration conf = new YarnConfiguration();
+     conf.setClass(YarnConfiguration.RM_SCHEDULER, FairScheduler.class,
+         ResourceScheduler.class);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 0);
++    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 1);
+     conf.setInt(FairSchedulerConfiguration.RM_SCHEDULER_INCREMENT_ALLOCATION_MB,
+         1024);
+     conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 10240);
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/TestFairScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/TestFairScheduler.java
+index 430eba7..acde1cd 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/TestFairScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fair/TestFairScheduler.java
+@@ -24,7 +24,6 @@
+ import static org.junit.Assert.assertNotEquals;
+ import static org.junit.Assert.assertNotNull;
+ import static org.junit.Assert.assertNull;
+-import static org.junit.Assert.assertSame;
+ import static org.junit.Assert.assertTrue;
+ import static org.junit.Assert.fail;
+ import static org.mockito.Matchers.isA;
+@@ -149,39 +148,6 @@ public void tearDown() {
+     DefaultMetricsSystem.shutdown();
+   }
+ 
+-
+-  @Test (timeout = 30000)
+-  public void testConfValidation() throws Exception {
+-    scheduler = new FairScheduler();
+-    Configuration conf = new YarnConfiguration();
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 2048);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 1024);
+-    try {
+-      scheduler.serviceInit(conf);
+-      fail("Exception is expected because the min memory allocation is" +
+-        " larger than the max memory allocation.");
+-    } catch (YarnRuntimeException e) {
+-      // Exception is expected.
+-      assertTrue("The thrown exception is not the expected one.",
+-        e.getMessage().startsWith(
+-          "Invalid resource scheduler memory"));
+-    }
+-
+-    conf = new YarnConfiguration();
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES, 2);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_VCORES, 1);
+-    try {
+-      scheduler.serviceInit(conf);
+-      fail("Exception is expected because the min vcores allocation is" +
+-        " larger than the max vcores allocation.");
+-    } catch (YarnRuntimeException e) {
+-      // Exception is expected.
+-      assertTrue("The thrown exception is not the expected one.",
+-        e.getMessage().startsWith(
+-          "Invalid resource scheduler vcores"));
+-    }
+-  }
+-
+   // TESTS
+ 
+   @Test(timeout=2000)
+@@ -239,25 +205,7 @@ public void testNonMinZeroResourcesSettings() throws IOException {
+     Assert.assertEquals(512, scheduler.getIncrementResourceCapability().getMemory());
+     Assert.assertEquals(2, scheduler.getIncrementResourceCapability().getVirtualCores());
+   }  
+-  
+-  @Test  
+-  public void testMinZeroResourcesSettings() throws IOException {  
+-    scheduler = new FairScheduler();
+-    YarnConfiguration conf = new YarnConfiguration();
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 0);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_VCORES, 0);
+-    conf.setInt(
+-      FairSchedulerConfiguration.RM_SCHEDULER_INCREMENT_ALLOCATION_MB, 512);
+-    conf.setInt(
+-      FairSchedulerConfiguration.RM_SCHEDULER_INCREMENT_ALLOCATION_VCORES, 2);
+-    scheduler.init(conf);
+-    scheduler.reinitialize(conf, null);
+-    Assert.assertEquals(0, scheduler.getMinimumResourceCapability().getMemory());
+-    Assert.assertEquals(0, scheduler.getMinimumResourceCapability().getVirtualCores());
+-    Assert.assertEquals(512, scheduler.getIncrementResourceCapability().getMemory());
+-    Assert.assertEquals(2, scheduler.getIncrementResourceCapability().getVirtualCores());
+-  }  
+-  
++
+   @Test
+   public void testAggregateCapacityTracking() throws Exception {
+     scheduler.init(conf);
+@@ -3212,41 +3160,6 @@ public void testMaxAssign() throws Exception {
+     assertEquals("Incorrect number of containers allocated", 8, app
+         .getLiveContainers().size());
+   }
+-  
+-  @Test(timeout = 3000)
+-  public void testMaxAssignWithZeroMemoryContainers() throws Exception {
+-    conf.setBoolean(FairSchedulerConfiguration.ASSIGN_MULTIPLE, true);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 0);
+-    
+-    scheduler.init(conf);
+-    scheduler.start();
+-    scheduler.reinitialize(conf, resourceManager.getRMContext());
+-
+-    RMNode node =
+-        MockNodes.newNodeInfo(1, Resources.createResource(16384, 16), 0,
+-            "127.0.0.1");
+-    NodeAddedSchedulerEvent nodeEvent = new NodeAddedSchedulerEvent(node);
+-    NodeUpdateSchedulerEvent updateEvent = new NodeUpdateSchedulerEvent(node);
+-    scheduler.handle(nodeEvent);
+-
+-    ApplicationAttemptId attId =
+-        createSchedulingRequest(0, 1, "root.default", "user", 8);
+-    FSAppAttempt app = scheduler.getSchedulerApp(attId);
+-
+-    // set maxAssign to 2: only 2 containers should be allocated
+-    scheduler.maxAssign = 2;
+-    scheduler.update();
+-    scheduler.handle(updateEvent);
+-    assertEquals("Incorrect number of containers allocated", 2, app
+-        .getLiveContainers().size());
+-
+-    // set maxAssign to -1: all remaining containers should be allocated
+-    scheduler.maxAssign = -1;
+-    scheduler.update();
+-    scheduler.handle(updateEvent);
+-    assertEquals("Incorrect number of containers allocated", 8, app
+-        .getLiveContainers().size());
+-  }
+ 
+   /**
+    * Test to verify the behavior of
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/TestFifoScheduler.java b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/TestFifoScheduler.java
+index 8111e11..8717aef 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/TestFifoScheduler.java
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-server/hadoop-yarn-server-resourcemanager/src/test/java/org/apache/hadoop/yarn/server/resourcemanager/scheduler/fifo/TestFifoScheduler.java
+@@ -625,23 +625,6 @@ public void testAddAndRemoveAppFromFiFoScheduler() throws Exception {
+       fs.getSchedulerApplications(), fs, "queue");
+   }
+ 
+-  @Test(timeout = 30000)
+-  public void testConfValidation() throws Exception {
+-    FifoScheduler scheduler = new FifoScheduler();
+-    Configuration conf = new YarnConfiguration();
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 2048);
+-    conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 1024);
+-    try {
+-      scheduler.serviceInit(conf);
+-      fail("Exception is expected because the min memory allocation is"
+-          + " larger than the max memory allocation.");
+-    } catch (YarnRuntimeException e) {
+-      // Exception is expected.
+-      assertTrue("The thrown exception is not the expected one.", e
+-          .getMessage().startsWith("Invalid resource scheduler memory"));
+-    }
+-  }
+-
+   @Test(timeout = 60000)
+   public void testAllocateContainerOnNodeWithoutOffSwitchSpecified()
+       throws Exception {
