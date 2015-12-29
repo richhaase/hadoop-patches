@@ -12,3 +12,15 @@ index 170c25a..783d7cb 100644
 +  /** Application which has subtasks with multiple end states. */
 +  ENDED
  }
+diff --git a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/proto/yarn_protos.proto b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/proto/yarn_protos.proto
+index 687ee89..fb65a7e 100644
+--- a/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/proto/yarn_protos.proto
++++ b/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-api/src/main/proto/yarn_protos.proto
+@@ -131,6 +131,7 @@ enum FinalApplicationStatusProto {
+   APP_SUCCEEDED = 1;
+   APP_FAILED = 2;
+   APP_KILLED = 3;
++  APP_ENDED = 4;
+ }
+ 
+ message URLProto {
